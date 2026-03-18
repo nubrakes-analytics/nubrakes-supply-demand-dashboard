@@ -170,26 +170,28 @@ const variance = (current, baseline) => {
 const diagStatus = (m, baselines) => {
   const b = baselines[m.market];
 
-  if (!b || b.weeksUsed === 0) {
-    if (m.leads < 10) return "Demand Constrained";
-    if (m.bookingRate < 30) return "Conversion Issue";
-    if (m.convRate < 20) return "Execution Issue";
-    return "Balanced";
-  }
-
   const curBookRate = m.leads > 0 ? m.booked_jobs / m.leads : 0;
   const curCompRate = m.booked_jobs > 0 ? m.completed_jobs / m.booked_jobs : 0;
   const curUtilRate = m.slots > 0 ? m.utilized_slots / m.slots : 0;
+
+  if (m.leads < 10) return "Demand Constrained";
+
+  if (!b || b.weeksUsed < 4) {
+    if (curUtilRate > 0.90) return "Supply Constrained";
+    if (curBookRate < 0.30) return "Conversion Issue";
+    if (m.booked_jobs >= 10 && curCompRate < 0.80) return "Execution Issue";
+    return "Balanced";
+  }
 
   const vLeads = variance(m.leads, b.avgLeads);
   const vBookRate = variance(curBookRate, b.avgBookRate);
   const vCompRate = variance(curCompRate, b.avgCompRate);
   const vUtilRate = variance(curUtilRate, b.avgUtilRate);
 
-  if (vLeads !== null && vLeads < -0.2) return "Demand Constrained";
+  if (vUtilRate !== null && vUtilRate > 0.15 && curUtilRate > 0.85) return "Supply Constrained";
+  if (vLeads !== null && vLeads < -0.20) return "Demand Constrained";
   if (vBookRate !== null && vBookRate < -0.15) return "Conversion Issue";
-  if (vCompRate !== null && vCompRate < -0.15) return "Execution Issue";
-  if (vUtilRate !== null && vUtilRate > 0.15) return "Supply Constrained";
+  if (m.booked_jobs >= 10 && vCompRate !== null && vCompRate < -0.15) return "Execution Issue";
 
   return "Balanced";
 };
