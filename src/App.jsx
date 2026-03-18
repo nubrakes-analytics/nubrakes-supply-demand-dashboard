@@ -30,7 +30,7 @@ const STATUS_COLOR = {
   "Execution Issue": C.info,
 };
 
-const BASELINE_WEEKS = 4;
+const BASELINE_WEEKS = 12;
 
 // ── Responsive hook ───────────────────────────────────────────────────────────
 const useBreakpoint = () => {
