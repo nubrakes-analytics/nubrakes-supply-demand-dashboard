@@ -417,7 +417,7 @@ export default function App() {
   const bp = useBreakpoint();
 
   useEffect(() => {
-    fetch("https://nubrakes-analytics.github.io/NuBrakes-Copilot/data/fact_nubrakes_supply_demand_daily.json")
+    fetch("https://raw.githubusercontent.com/nubrakes-analytics/NuBrakes-Copilot/1e0ec647dc2c42e08444361d8e26fd03816322d7/data/fact_nubrakes_supply_demand_daily.json")
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load dataset: ${r.status}`);
         return r.json();
