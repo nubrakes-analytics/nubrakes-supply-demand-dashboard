@@ -191,7 +191,7 @@ const diagStatus = (m, baselines) => {
   if (vUtilRate !== null && vUtilRate > 0.15 && curUtilRate > 0.85) return "Supply Constrained";
   if (vLeads !== null && vLeads < -0.20) return "Demand Constrained";
   if (vBookRate !== null && vBookRate < -0.15) return "Conversion Issue";
-  if (m.booked_jobs >= 10 && vCompRate !== null && vCompRate < -0.15) return "Execution Issue";
+  if (m.booked_jobs >= 10 && vCompRate !== null && vCompRate < -0.25) return "Execution Issue";
 
   return "Balanced";
 };
