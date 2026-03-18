@@ -629,7 +629,7 @@ export default function App() {
         }}
       >
         <h1 style={{ margin: 0, fontSize: bp === "mobile" ? 15 : 18, fontWeight: 800 }}>
-          Weekly Ops Dashboard
+         Supply and Demand Dashboard
         </h1>
         <p style={{ margin: 0, fontSize: 11, color: C.muted }}>
           Week of {derived.CUR_WK || "-"} · vs {derived.PREV_WK || "-"}
