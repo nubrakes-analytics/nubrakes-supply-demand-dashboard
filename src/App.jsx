@@ -1,7 +1,17 @@
 import { useState, useMemo, useEffect } from "react";
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, Cell, ComposedChart,
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+  Cell,
+  ComposedChart,
 } from "recharts";
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
@@ -23,7 +33,7 @@ const C = {
 };
 
 const STATUS_COLOR = {
-  "Balanced": C.success,
+  Balanced: C.success,
   "Demand Constrained": C.warning,
   "Supply Constrained": C.danger,
   "Conversion Issue": C.purple,
@@ -52,7 +62,28 @@ const useBreakpoint = () => {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? 0 : Number(v));
+const num = (v) =>
+  v === "" || v == null || Number.isNaN(Number(v)) ? 0 : Number(v);
+
+const getChicagoTodayStr = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+const getWeekStartSunday = (dateStr) => {
+  const [y, m, d] = String(dateStr).split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  const dow = dt.getDay(); // 0=Sun
+  dt.setDate(dt.getDate() - dow);
+
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+};
 
 const aggWeek = (rows) => {
   const r = {
@@ -102,14 +133,6 @@ const groupByWeek = (rows) => {
   return map;
 };
 
-const getMonday = (dateStr) => {
-  const d = new Date(dateStr);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
-};
-
 const pct = (a, b) => (b === 0 ? 0 : +((a / b) * 100).toFixed(1));
 
 const derive = (agg) => ({
@@ -117,15 +140,21 @@ const derive = (agg) => ({
   bookingRate: pct(agg.booked_jobs, agg.leads),
   convRate: pct(agg.completed_jobs, agg.leads),
   utilization: agg.slots > 0 ? pct(agg.utilized_slots, agg.slots) : 0,
-  slotAvailPct: agg.slots > 0 ? pct(agg.rev_job_slots_available, agg.slots) : 0,
+  slotAvailPct:
+    agg.slots > 0 ? pct(agg.rev_job_slots_available, agg.slots) : 0,
   lsr: agg.slots > 0 ? +(agg.leads / agg.slots).toFixed(1) : 0,
   jobsPerTech: agg.techs > 0 ? +(agg.completed_jobs / agg.techs).toFixed(1) : 0,
   nonRevPct:
     agg.utilized_slots > 0
-      ? pct(agg.warranty_checks + agg.diagnostics + agg.service_calls, agg.utilized_slots)
+      ? pct(
+          agg.warranty_checks + agg.diagnostics + agg.service_calls,
+          agg.utilized_slots
+        )
       : 0,
-  completionYield: agg.booked_jobs > 0 ? pct(agg.completed_jobs, agg.booked_jobs) : 0,
-  revCapMix: agg.utilized_slots > 0 ? pct(agg.completed_jobs, agg.utilized_slots) : 0,
+  completionYield:
+    agg.booked_jobs > 0 ? pct(agg.completed_jobs, agg.booked_jobs) : 0,
+  revCapMix:
+    agg.utilized_slots > 0 ? pct(agg.completed_jobs, agg.utilized_slots) : 0,
 });
 
 const buildBaselines = (allWeeks, pastWeeks, markets) => {
@@ -146,8 +175,12 @@ const buildBaselines = (allWeeks, pastWeeks, markets) => {
       .filter((w) => w.leads > 0);
 
     const avg = (arr, key) => {
-      const vals = arr.map((w) => w[key]).filter((v) => v !== null && v !== undefined);
-      return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+      const vals = arr
+        .map((w) => w[key])
+        .filter((v) => v !== null && v !== undefined);
+      return vals.length
+        ? vals.reduce((s, v) => s + v, 0) / vals.length
+        : null;
     };
 
     acc[market] = {
@@ -174,24 +207,25 @@ const diagStatus = (m, baselines) => {
   const curCompRate = m.booked_jobs > 0 ? m.completed_jobs / m.booked_jobs : 0;
   const curUtilRate = m.slots > 0 ? m.utilized_slots / m.slots : 0;
 
-  
-  //action/baseline status
   if (m.leads < 10) return "Demand Constrained";
   if (!b || b.weeksUsed < 4) {
-    if (curUtilRate > 0.90) return "Supply Constrained";
-    if (curBookRate < 0.30) return "Conversion Issue";
-    if (m.booked_jobs >= 10 && curCompRate < 0.80) return "Execution Issue";
+    if (curUtilRate > 0.9) return "Supply Constrained";
+    if (curBookRate < 0.3) return "Conversion Issue";
+    if (m.booked_jobs >= 10 && curCompRate < 0.8) return "Execution Issue";
     return "Balanced";
   }
+
   const vLeads = variance(m.leads, b.avgLeads);
   const vBookRate = variance(curBookRate, b.avgBookRate);
   const vCompRate = variance(curCompRate, b.avgCompRate);
   const vUtilRate = variance(curUtilRate, b.avgUtilRate);
 
-  if (vUtilRate !== null && vUtilRate > 0.10 && curUtilRate > 0.75) return "Supply Constrained";
-  if (vLeads !== null && vLeads < -0.20) return "Demand Constrained";
+  if (vUtilRate !== null && vUtilRate > 0.1 && curUtilRate > 0.75)
+    return "Supply Constrained";
+  if (vLeads !== null && vLeads < -0.2) return "Demand Constrained";
   if (vBookRate !== null && vBookRate < -0.15) return "Conversion Issue";
-  if (m.booked_jobs >= 10 && vCompRate !== null && vCompRate < -0.25) return "Execution Issue";
+  if (m.booked_jobs >= 10 && vCompRate !== null && vCompRate < -0.25)
+    return "Execution Issue";
 
   return "Balanced";
 };
@@ -202,14 +236,20 @@ const diagAction = (s) =>
     "Conversion Issue": "Improve booking follow-up",
     "Supply Constrained": "Add slots / adjust staffing",
     "Execution Issue": "Investigate low completion yield",
-    "Balanced": "Monitor — no immediate action",
+    Balanced: "Monitor — no immediate action",
   })[s];
 
 // ── Small UI Helpers ──────────────────────────────────────────────────────────
 const Spark = ({ data, color = C.info }) => (
   <ResponsiveContainer width={56} height={24}>
     <LineChart data={data}>
-      <Line type="monotone" dataKey="v" dot={false} strokeWidth={1.5} stroke={color} />
+      <Line
+        type="monotone"
+        dataKey="v"
+        dot={false}
+        strokeWidth={1.5}
+        stroke={color}
+      />
     </LineChart>
   </ResponsiveContainer>
 );
@@ -244,8 +284,14 @@ const Card = ({ children, style = {}, title }) => (
 
 const SectionHeader = ({ title, sub }) => (
   <div style={{ marginBottom: 16 }}>
-    <h2 style={{ color: C.primary, fontSize: 16, fontWeight: 800, margin: 0 }}>{title}</h2>
-    {sub && <p style={{ color: C.muted, fontSize: 11, margin: "3px 0 0" }}>{sub}</p>}
+    <h2
+      style={{ color: C.primary, fontSize: 16, fontWeight: 800, margin: 0 }}
+    >
+      {title}
+    </h2>
+    {sub && (
+      <p style={{ color: C.muted, fontSize: 11, margin: "3px 0 0" }}>{sub}</p>
+    )}
   </div>
 );
 
@@ -258,7 +304,8 @@ const TT = ({ active, payload, label, showDelta = false }) => {
     cur && prev && prev.value !== 0
       ? +(((cur.value - prev.value) / prev.value) * 100).toFixed(1)
       : null;
-  const absDelta = cur && prev ? +(cur.value - prev.value).toFixed(1) : null;
+  const absDelta =
+    cur && prev ? +(cur.value - prev.value).toFixed(1) : null;
 
   return (
     <div
@@ -271,10 +318,15 @@ const TT = ({ active, payload, label, showDelta = false }) => {
         boxShadow: "0 4px 12px rgba(0,0,0,.1)",
       }}
     >
-      <p style={{ color: C.muted, margin: "0 0 4px", fontWeight: 600 }}>{label}</p>
+      <p style={{ color: C.muted, margin: "0 0 4px", fontWeight: 600 }}>
+        {label}
+      </p>
       {payload.map((p, i) => (
         <p key={i} style={{ color: p.color, margin: "2px 0" }}>
-          {p.name}: <b style={{ color: C.primary }}>{typeof p.value === "number" ? p.value.toFixed(1) : p.value}</b>
+          {p.name}:{" "}
+          <b style={{ color: C.primary }}>
+            {typeof p.value === "number" ? p.value.toFixed(1) : p.value}
+          </b>
         </p>
       ))}
       {showDelta && delta !== null && (
@@ -336,8 +388,19 @@ const KPI_VALUE_FORMAT = (v, fmt) => {
   return Math.round(v).toLocaleString();
 };
 
-function KPICard({ label, cur, prev, fmt = "n", inv = false, isMobile = false, weekTrendData = [] }) {
-  const d = fmt === "%" || fmt === "x" ? +(cur - prev).toFixed(1) : Math.round(cur - prev);
+function KPICard({
+  label,
+  cur,
+  prev,
+  fmt = "n",
+  inv = false,
+  isMobile = false,
+  weekTrendData = [],
+}) {
+  const d =
+    fmt === "%" || fmt === "x"
+      ? +(cur - prev).toFixed(1)
+      : Math.round(cur - prev);
   const p = prev === 0 ? 0 : +(((cur - prev) / prev) * 100).toFixed(1);
   const up = d >= 0;
   const good = inv ? !up : up;
@@ -345,16 +408,18 @@ function KPICard({ label, cur, prev, fmt = "n", inv = false, isMobile = false, w
   const bg = good ? "#d1fae5" : "#fee2e2";
 
   const sparkField = {
-    "Leads": "leads",
+    Leads: "leads",
     "Booking Rate": "bookRate",
     "Conversion Rate": "conv",
-    "Utilization": "util",
-    "LSR": "lsr",
-    "Slots": "slots",
+    Utilization: "util",
+    LSR: "lsr",
+    Slots: "slots",
     "Completed Jobs": "completed",
   }[label];
 
-  const sparkData = sparkField ? weekTrendData.map((w) => ({ v: w[sparkField] || 0 })) : [];
+  const sparkData = sparkField
+    ? weekTrendData.map((w) => ({ v: w[sparkField] || 0 }))
+    : [];
 
   return (
     <div
@@ -381,14 +446,34 @@ function KPICard({ label, cur, prev, fmt = "n", inv = false, isMobile = false, w
         {label}
       </span>
 
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
-        <span style={{ color: C.primary, fontSize: isMobile ? 20 : 26, fontWeight: 800, lineHeight: 1 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+        }}
+      >
+        <span
+          style={{
+            color: C.primary,
+            fontSize: isMobile ? 20 : 26,
+            fontWeight: 800,
+            lineHeight: 1,
+          }}
+        >
           {KPI_VALUE_FORMAT(cur, fmt)}
         </span>
         {!isMobile && sparkField && <Spark data={sparkData} />}
       </div>
 
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 6,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
         <span
           style={{
             background: bg,
@@ -416,10 +501,13 @@ export default function App() {
   const [rawData, setRawData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("scorecard");
+  const [weekMode, setWeekMode] = useState("completed");
   const bp = useBreakpoint();
 
   useEffect(() => {
-    fetch("https://raw.githubusercontent.com/nubrakes-analytics/NuBrakes-Copilot/1e0ec647dc2c42e08444361d8e26fd03816322d7/data/fact_nubrakes_supply_demand_daily.json")
+    fetch(
+      "https://raw.githubusercontent.com/nubrakes-analytics/NuBrakes-Copilot/1e0ec647dc2c42e08444361d8e26fd03816322d7/data/fact_nubrakes_supply_demand_daily.json"
+    )
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load dataset: ${r.status}`);
         return r.json();
@@ -428,7 +516,10 @@ export default function App() {
         setRawData(Array.isArray(d) ? d : []);
       })
       .catch((err) => {
-        console.error("fact_nubrakes_supply_demand_daily.json load failed", err);
+        console.error(
+          "fact_nubrakes_supply_demand_daily.json load failed",
+          err
+        );
         setRawData([]);
       })
       .finally(() => {
@@ -459,12 +550,28 @@ export default function App() {
     const allWeeks = groupByWeek(RAW);
     const weekKeys = Object.keys(allWeeks).sort();
 
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const thisWeekMonday = getMonday(todayStr);
-    const pastWeeks = weekKeys.filter((k) => k < thisWeekMonday);
+    const todayStr = getChicagoTodayStr();
+    const thisWeekStart = getWeekStartSunday(todayStr);
 
-    const CUR_WK = pastWeeks[pastWeeks.length - 1] || weekKeys[weekKeys.length - 1];
-    const PREV_WK = pastWeeks[pastWeeks.length - 2] || pastWeeks[0] || CUR_WK;
+    const pastWeeks = weekKeys.filter((k) => k < thisWeekStart);
+    const currentWeekExists = weekKeys.includes(thisWeekStart);
+
+    let CUR_WK = "";
+    let PREV_WK = "";
+
+    if (weekMode === "current") {
+      CUR_WK = currentWeekExists ? thisWeekStart : weekKeys[weekKeys.length - 1];
+      PREV_WK =
+        weekKeys[weekKeys.indexOf(CUR_WK) - 1] ||
+        pastWeeks[pastWeeks.length - 1] ||
+        CUR_WK;
+    } else {
+      CUR_WK = pastWeeks[pastWeeks.length - 1] || weekKeys[weekKeys.length - 1];
+      PREV_WK =
+        weekKeys[weekKeys.indexOf(CUR_WK) - 1] ||
+        pastWeeks[pastWeeks.length - 2] ||
+        CUR_WK;
+    }
 
     const curRows = allWeeks[CUR_WK] || [];
     const prevRows = allWeeks[PREV_WK] || [];
@@ -501,30 +608,32 @@ export default function App() {
       };
     });
 
-    const curByDow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((dow) => {
-      const cR = curRows.filter((r) => r.dow === dow);
-      const pR = prevRows.filter((r) => r.dow === dow);
-      const c = cR.length ? derive(aggWeek(cR)) : null;
-      const p = pR.length ? derive(aggWeek(pR)) : null;
+    const curByDow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+      (dow) => {
+        const cR = curRows.filter((r) => r.dow === dow);
+        const pR = prevRows.filter((r) => r.dow === dow);
+        const c = cR.length ? derive(aggWeek(cR)) : null;
+        const p = pR.length ? derive(aggWeek(pR)) : null;
 
-      return {
-        day: dow,
-        leads: c?.leads || 0,
-        leads_pw: p?.leads || 0,
-        bookRate: c?.bookingRate || 0,
-        bookRate_pw: p?.bookingRate || 0,
-        conv: c?.convRate || 0,
-        conv_pw: p?.convRate || 0,
-        lsr: c?.lsr || 0,
-        lsr_pw: p?.lsr || 0,
-        slots: c?.slots || 0,
-        slots_pw: p?.slots || 0,
-        techs: c?.techs || 0,
-        techs_pw: p?.techs || 0,
-        util: c?.utilization || 0,
-        avail: c?.slotAvailPct || 0,
-      };
-    });
+        return {
+          day: dow,
+          leads: c?.leads || 0,
+          leads_pw: p?.leads || 0,
+          bookRate: c?.bookingRate || 0,
+          bookRate_pw: p?.bookingRate || 0,
+          conv: c?.convRate || 0,
+          conv_pw: p?.convRate || 0,
+          lsr: c?.lsr || 0,
+          lsr_pw: p?.lsr || 0,
+          slots: c?.slots || 0,
+          slots_pw: p?.slots || 0,
+          techs: c?.techs || 0,
+          techs_pw: p?.techs || 0,
+          util: c?.utilization || 0,
+          avail: c?.slotAvailPct || 0,
+        };
+      }
+    );
 
     const weekTrendData = weekKeys
       .filter((k) => k <= CUR_WK)
@@ -604,7 +713,7 @@ export default function App() {
       utilByMktCompare,
       actionTableData,
     };
-  }, [rawData]);
+  }, [rawData, weekMode]);
 
   if (loading) {
     return <div style={{ padding: 24 }}>Loading...</div>;
@@ -619,7 +728,6 @@ export default function App() {
         color: C.primary,
       }}
     >
-      {/* Header */}
       <div
         style={{
           background: C.surface,
@@ -628,15 +736,60 @@ export default function App() {
           boxShadow: "0 1px 3px rgba(0,0,0,.05)",
         }}
       >
-        <h1 style={{ margin: 0, fontSize: bp === "mobile" ? 15 : 18, fontWeight: 800 }}>
-         Supply and Demand Dashboard
+        <h1
+          style={{
+            margin: 0,
+            fontSize: bp === "mobile" ? 15 : 18,
+            fontWeight: 800,
+          }}
+        >
+          Supply and Demand Dashboard
         </h1>
         <p style={{ margin: 0, fontSize: 11, color: C.muted }}>
           Week of {derived.CUR_WK || "-"} · vs {derived.PREV_WK || "-"}
         </p>
       </div>
 
-      {/* Tabs */}
+      <div
+        style={{
+          background: C.surface,
+          borderBottom: `1px solid ${C.border}`,
+          padding: bp === "mobile" ? "10px 16px" : "12px 24px",
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>
+          Week View
+        </span>
+
+        {[
+          { id: "completed", label: "Last Completed Week" },
+          { id: "current", label: "Current Week" },
+        ].map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => setWeekMode(opt.id)}
+            style={{
+              background: weekMode === opt.id ? C.info : C.surface,
+              color: weekMode === opt.id ? "#fff" : C.muted,
+              border: `1px solid ${
+                weekMode === opt.id ? C.info : C.border
+              }`,
+              borderRadius: 20,
+              padding: "6px 12px",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       <div
         style={{
           background: C.surface,
@@ -646,7 +799,12 @@ export default function App() {
           WebkitOverflowScrolling: "touch",
         }}
       >
-        <div style={{ display: "inline-flex", padding: `0 ${bp === "mobile" ? "12px" : "24px"}` }}>
+        <div
+          style={{
+            display: "inline-flex",
+            padding: `0 ${bp === "mobile" ? "12px" : "24px"}`,
+          }}
+        >
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -655,7 +813,9 @@ export default function App() {
                 background: "transparent",
                 color: tab === t.id ? C.info : C.muted,
                 border: "none",
-                borderBottom: `2px solid ${tab === t.id ? C.info : "transparent"}`,
+                borderBottom: `2px solid ${
+                  tab === t.id ? C.info : "transparent"
+                }`,
                 padding: bp === "mobile" ? "10px 12px" : "12px 18px",
                 fontSize: bp === "mobile" ? 12 : 13,
                 fontWeight: 600,
@@ -669,8 +829,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* Content */}
-      <div style={{ padding: bp === "mobile" ? "14px" : "24px", maxWidth: 1400, margin: "0 auto" }}>
+      <div
+        style={{
+          padding: bp === "mobile" ? "14px" : "24px",
+          maxWidth: 1400,
+          margin: "0 auto",
+        }}
+      >
         {tab === "scorecard" && (
           <Scorecard
             bp={bp}
@@ -731,22 +896,58 @@ function Scorecard({ bp, CUR, PREV, weekTrendData, CUR_WK, PREV_WK }) {
 
   const kpis = [
     { label: "Leads", cur: CUR.leads, prev: PREV.leads, fmt: "n" },
-    { label: "Booking Rate", cur: CUR.bookingRate, prev: PREV.bookingRate, fmt: "%" },
-    { label: "Conversion Rate", cur: CUR.convRate, prev: PREV.convRate, fmt: "%" },
-    { label: "Completed Jobs", cur: CUR.completed_jobs, prev: PREV.completed_jobs, fmt: "n" },
-    { label: "Utilization", cur: CUR.utilization, prev: PREV.utilization, fmt: "%" },
+    {
+      label: "Booking Rate",
+      cur: CUR.bookingRate,
+      prev: PREV.bookingRate,
+      fmt: "%",
+    },
+    {
+      label: "Conversion Rate",
+      cur: CUR.convRate,
+      prev: PREV.convRate,
+      fmt: "%",
+    },
+    {
+      label: "Completed Jobs",
+      cur: CUR.completed_jobs,
+      prev: PREV.completed_jobs,
+      fmt: "n",
+    },
+    {
+      label: "Utilization",
+      cur: CUR.utilization,
+      prev: PREV.utilization,
+      fmt: "%",
+    },
     { label: "Techs", cur: CUR.techs, prev: PREV.techs, fmt: "n" },
     { label: "Slots", cur: CUR.slots, prev: PREV.slots, fmt: "n" },
-    { label: "% Slots Avail", cur: CUR.slotAvailPct, prev: PREV.slotAvailPct, fmt: "%" },
+    {
+      label: "% Slots Avail",
+      cur: CUR.slotAvailPct,
+      prev: PREV.slotAvailPct,
+      fmt: "%",
+    },
     { label: "LSR", cur: CUR.lsr, prev: PREV.lsr, fmt: "x", inv: true },
   ];
 
   return (
     <div>
       <SectionHeader title="Weekly Scorecard" sub={`${CUR_WK} vs ${PREV_WK}`} />
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols},1fr)`, gap: 10 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${cols},1fr)`,
+          gap: 10,
+        }}
+      >
         {kpis.map((k) => (
-          <KPICard key={k.label} {...k} isMobile={isMobile} weekTrendData={weekTrendData} />
+          <KPICard
+            key={k.label}
+            {...k}
+            isMobile={isMobile}
+            weekTrendData={weekTrendData}
+          />
         ))}
       </div>
     </div>
@@ -1170,7 +1371,12 @@ function ActionTable({ bp, actionTableData, CUR_WK }) {
 
   const cell = (v, lo, hi, fmt = "%") => {
     const col = v < lo ? C.danger : v < hi ? C.warning : C.success;
-    const fv = fmt === "%" ? `${v.toFixed(1)}%` : fmt === "x" ? `${v.toFixed(1)}x` : Math.round(v);
+    const fv =
+      fmt === "%"
+        ? `${v.toFixed(1)}%`
+        : fmt === "x"
+        ? `${v.toFixed(1)}x`
+        : Math.round(v);
     return (
       <td style={{ padding: "11px 12px", color: col, fontWeight: 600, fontSize: 12 }}>
         {fv}
@@ -1228,11 +1434,18 @@ function ActionTable({ bp, actionTableData, CUR_WK }) {
                       : C.success
                     : C.secondary;
 
-                  const fv = fmt === "%" ? `${val.toFixed(1)}%` : fmt === "x" ? `${val.toFixed(1)}x` : Math.round(val);
+                  const fv =
+                    fmt === "%"
+                      ? `${val.toFixed(1)}%`
+                      : fmt === "x"
+                      ? `${val.toFixed(1)}x`
+                      : Math.round(val);
 
                   return (
                     <div key={lbl} style={{ background: C.panel, borderRadius: 6, padding: "6px 8px" }}>
-                      <div style={{ color: C.muted, fontSize: 9, fontWeight: 600, textTransform: "uppercase" }}>{lbl}</div>
+                      <div style={{ color: C.muted, fontSize: 9, fontWeight: 600, textTransform: "uppercase" }}>
+                        {lbl}
+                      </div>
                       <div style={{ color: col, fontWeight: 700, fontSize: 13 }}>{fv}</div>
                     </div>
                   );
