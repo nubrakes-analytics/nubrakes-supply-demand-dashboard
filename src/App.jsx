@@ -73,11 +73,12 @@ const getChicagoTodayStr = () =>
     day: "2-digit",
   }).format(new Date());
 
-const getWeekStartSunday = (dateStr) => {
+const getWeekStartMonday = (dateStr) => {
   const [y, m, d] = String(dateStr).split("-").map(Number);
   const dt = new Date(y, m - 1, d);
-  const dow = dt.getDay(); // 0=Sun
-  dt.setDate(dt.getDate() - dow);
+  const dow = dt.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const diff = dow === 0 ? -6 : 1 - dow; // move back to Monday
+  dt.setDate(dt.getDate() + diff);
 
   const yy = dt.getFullYear();
   const mm = String(dt.getMonth() + 1).padStart(2, "0");
@@ -551,8 +552,8 @@ export default function App() {
     const weekKeys = Object.keys(allWeeks).sort();
 
     const todayStr = getChicagoTodayStr();
-    const thisWeekStart = getWeekStartSunday(todayStr);
-
+    const thisWeekStart = getWeekStartMonday(todayStr);
+    
     const pastWeeks = weekKeys.filter((k) => k < thisWeekStart);
     const currentWeekExists = weekKeys.includes(thisWeekStart);
 
