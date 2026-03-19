@@ -76,8 +76,8 @@ const getChicagoTodayStr = () =>
 const getWeekStartMonday = (dateStr) => {
   const [y, m, d] = String(dateStr).split("-").map(Number);
   const dt = new Date(y, m - 1, d);
-  const dow = dt.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-  const diff = dow === 0 ? -6 : 1 - dow; // move back to Monday
+  const dow = dt.getDay();
+  const diff = dow === 0 ? -6 : 1 - dow;
   dt.setDate(dt.getDate() + diff);
 
   const yy = dt.getFullYear();
@@ -502,7 +502,8 @@ export default function App() {
   const [rawData, setRawData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("scorecard");
-  const [weekMode, setWeekMode] = useState("completed");
+  // null = default to last completed week
+  const [selectedWeek, setSelectedWeek] = useState(null);
   const bp = useBreakpoint();
 
   useEffect(() => {
@@ -537,6 +538,8 @@ export default function App() {
         PREV: derive(aggWeek([])),
         CUR_WK: "",
         PREV_WK: "",
+        allWeekKeys: [],
+        lastCompletedWeek: "",
         curByMkt: [],
         prevByMkt: [],
         mktCompare: [],
@@ -553,26 +556,18 @@ export default function App() {
 
     const todayStr = getChicagoTodayStr();
     const thisWeekStart = getWeekStartMonday(todayStr);
-    
+
     const pastWeeks = weekKeys.filter((k) => k < thisWeekStart);
-    const currentWeekExists = weekKeys.includes(thisWeekStart);
 
-    let CUR_WK = "";
-    let PREV_WK = "";
+    // Last completed week is always the most recent past week
+    const lastCompletedWeek =
+      pastWeeks[pastWeeks.length - 1] || weekKeys[weekKeys.length - 1];
 
-    if (weekMode === "current") {
-      CUR_WK = currentWeekExists ? thisWeekStart : weekKeys[weekKeys.length - 1];
-      PREV_WK =
-        weekKeys[weekKeys.indexOf(CUR_WK) - 1] ||
-        pastWeeks[pastWeeks.length - 1] ||
-        CUR_WK;
-    } else {
-      CUR_WK = pastWeeks[pastWeeks.length - 1] || weekKeys[weekKeys.length - 1];
-      PREV_WK =
-        weekKeys[weekKeys.indexOf(CUR_WK) - 1] ||
-        pastWeeks[pastWeeks.length - 2] ||
-        CUR_WK;
-    }
+    // selectedWeek=null defaults to last completed week
+    const CUR_WK = selectedWeek || lastCompletedWeek;
+    const curIdx = weekKeys.indexOf(CUR_WK);
+    const PREV_WK =
+      curIdx > 0 ? weekKeys[curIdx - 1] : CUR_WK;
 
     const curRows = allWeeks[CUR_WK] || [];
     const prevRows = allWeeks[PREV_WK] || [];
@@ -705,6 +700,8 @@ export default function App() {
       PREV,
       CUR_WK,
       PREV_WK,
+      allWeekKeys: weekKeys,
+      lastCompletedWeek,
       curByMkt,
       prevByMkt,
       mktCompare,
@@ -714,11 +711,29 @@ export default function App() {
       utilByMktCompare,
       actionTableData,
     };
-  }, [rawData, weekMode]);
+  }, [rawData, selectedWeek]);
 
   if (loading) {
     return <div style={{ padding: 24 }}>Loading...</div>;
   }
+
+  const { allWeekKeys, lastCompletedWeek, CUR_WK } = derived;
+  const curIdx = allWeekKeys.indexOf(CUR_WK);
+  const isAtLastCompleted = selectedWeek === null || selectedWeek === lastCompletedWeek;
+  const canGoPrev = curIdx > 0;
+  const canGoNext = curIdx < allWeekKeys.length - 1;
+
+  const navBtnStyle = (enabled) => ({
+    background: C.surface,
+    border: `1px solid ${enabled ? C.border : C.border}`,
+    borderRadius: 6,
+    padding: "5px 12px",
+    fontSize: 16,
+    fontWeight: 700,
+    cursor: enabled ? "pointer" : "not-allowed",
+    color: enabled ? C.secondary : C.subtle,
+    lineHeight: 1,
+  });
 
   return (
     <div
@@ -729,6 +744,7 @@ export default function App() {
         color: C.primary,
       }}
     >
+      {/* Header */}
       <div
         style={{
           background: C.surface,
@@ -751,46 +767,99 @@ export default function App() {
         </p>
       </div>
 
+      {/* Week navigator */}
       <div
         style={{
           background: C.surface,
           borderBottom: `1px solid ${C.border}`,
-          padding: bp === "mobile" ? "10px 16px" : "12px 24px",
+          padding: bp === "mobile" ? "10px 16px" : "10px 24px",
           display: "flex",
           gap: 8,
           alignItems: "center",
           flexWrap: "wrap",
         }}
       >
-        <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>
-          Week View
+        <span style={{ fontSize: 12, color: C.muted, fontWeight: 600, marginRight: 2 }}>
+          Week
         </span>
 
-        {[
-          { id: "completed", label: "Last Completed Week" },
-          { id: "current", label: "Current Week" },
-        ].map((opt) => (
+        {/* Prev arrow */}
+        <button
+          disabled={!canGoPrev}
+          onClick={() => {
+            if (canGoPrev) setSelectedWeek(allWeekKeys[curIdx - 1]);
+          }}
+          style={navBtnStyle(canGoPrev)}
+          title="Previous week"
+        >
+          ‹
+        </button>
+
+        {/* Current week label */}
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: C.primary,
+            minWidth: 94,
+            textAlign: "center",
+            background: C.panel,
+            border: `1px solid ${C.border}`,
+            borderRadius: 6,
+            padding: "5px 10px",
+          }}
+        >
+          {CUR_WK || "—"}
+        </span>
+
+        {/* Next arrow */}
+        <button
+          disabled={!canGoNext}
+          onClick={() => {
+            if (canGoNext) setSelectedWeek(allWeekKeys[curIdx + 1]);
+          }}
+          style={navBtnStyle(canGoNext)}
+          title="Next week"
+        >
+          ›
+        </button>
+
+        {/* Last Completed shortcut */}
+        {!isAtLastCompleted && (
           <button
-            key={opt.id}
-            onClick={() => setWeekMode(opt.id)}
+            onClick={() => setSelectedWeek(null)}
             style={{
-              background: weekMode === opt.id ? C.info : C.surface,
-              color: weekMode === opt.id ? "#fff" : C.muted,
-              border: `1px solid ${
-                weekMode === opt.id ? C.info : C.border
-              }`,
+              background: C.surface,
+              color: C.info,
+              border: `1px solid ${C.info}`,
               borderRadius: 20,
-              padding: "6px 12px",
+              padding: "5px 12px",
               fontSize: 12,
               fontWeight: 600,
               cursor: "pointer",
+              marginLeft: 4,
+            }}
+            title={`Jump to last completed week (${lastCompletedWeek})`}
+          >
+            ← Last Completed
+          </button>
+        )}
+
+        {isAtLastCompleted && (
+          <span
+            style={{
+              fontSize: 11,
+              color: C.subtle,
+              marginLeft: 4,
+              fontStyle: "italic",
             }}
           >
-            {opt.label}
-          </button>
-        ))}
+            Last completed week
+          </span>
+        )}
       </div>
 
+      {/* Tabs */}
       <div
         style={{
           background: C.surface,
@@ -830,6 +899,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* Content */}
       <div
         style={{
           padding: bp === "mobile" ? "14px" : "24px",
