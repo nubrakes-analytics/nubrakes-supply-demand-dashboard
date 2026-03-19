@@ -174,15 +174,15 @@ const diagStatus = (m, baselines) => {
   const curCompRate = m.booked_jobs > 0 ? m.completed_jobs / m.booked_jobs : 0;
   const curUtilRate = m.slots > 0 ? m.utilized_slots / m.slots : 0;
 
+  
+  //action/baseline status
   if (m.leads < 10) return "Demand Constrained";
-
   if (!b || b.weeksUsed < 4) {
     if (curUtilRate > 0.90) return "Supply Constrained";
     if (curBookRate < 0.30) return "Conversion Issue";
     if (m.booked_jobs >= 10 && curCompRate < 0.80) return "Execution Issue";
     return "Balanced";
   }
-
   const vLeads = variance(m.leads, b.avgLeads);
   const vBookRate = variance(curBookRate, b.avgBookRate);
   const vCompRate = variance(curCompRate, b.avgCompRate);
