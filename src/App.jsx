@@ -43,7 +43,7 @@ const STATUS_COLOR = {
 const BASELINE_WEEKS = 12;
 const AUTO_REFRESH_MS = 5 * 60 * 1000;
 const DATA_URL =
-  "https://cdn.jsdelivr.net/gh/nubrakes-analytics/NuBrakes-Copilot@main/data/fact_nubrakes_supply_demand_daily.json";
+  "https://nubrakes-analytics.github.io/NuBrakes-Copilot/data/fact_nubrakes_supply_demand_daily.json";
 
 // ── Responsive hook ───────────────────────────────────────────────────────────
 const useBreakpoint = () => {
@@ -539,40 +539,50 @@ export default function App() {
   const bp = useBreakpoint();
 
   useEffect(() => {
-    let isMounted = true;
+  let isMounted = true;
 
-    const loadData = async (isFirstLoad = false) => {
-      if (isFirstLoad) setLoading(true);
+  const loadData = async (isFirstLoad = false) => {
+    if (isFirstLoad) setLoading(true);
 
-      try {
-        const res = await fetch(`${DATA_URL}?ts=${Date.now()}`, {
-          cache: "no-store",
-          headers: {
-            "Cache-Control": "no-cache, no-store, max-age=0",
-            Pragma: "no-cache",
-          },
-        });
+    try {
+      const res = await fetch(`${DATA_URL}?ts=${Date.now()}`, {
+        cache: "no-store",
+      });
 
-        if (!res.ok) {
-          throw new Error(`Failed to load dataset: ${res.status}`);
-        }
-
-        const d = await res.json();
-
-        if (!isMounted) return;
-
-        setRawData(Array.isArray(d) ? d : []);
-        setLastLoadedAt(getChicagoNowLabel());
-        setLoadError("");
-      } catch (err) {
-        console.error("fact_nubrakes_supply_demand_daily.json load failed", err);
-        if (!isMounted) return;
-        setRawData([]);
-        setLoadError(err?.message || "Dataset load failed");
-      } finally {
-        if (isMounted && isFirstLoad) setLoading(false);
+      if (!res.ok) {
+        throw new Error(`Failed to load dataset: ${res.status}`);
       }
-    };
+
+      const d = await res.json();
+
+      if (!isMounted) return;
+
+      setRawData(Array.isArray(d) ? d : []);
+      setLastLoadedAt(getChicagoNowLabel());
+      setLoadError("");
+    } catch (err) {
+      console.error("fact_nubrakes_supply_demand_daily.json load failed", err);
+
+      if (!isMounted) return;
+
+      setLoadError(err?.message || "Dataset load failed");
+
+      if (isFirstLoad) {
+        setRawData([]);
+      }
+    } finally {
+      if (isMounted && isFirstLoad) setLoading(false);
+    }
+  };
+
+  loadData(true);
+  const timer = setInterval(() => loadData(false), AUTO_REFRESH_MS);
+
+  return () => {
+    isMounted = false;
+    clearInterval(timer);
+  };
+}, []);
 
     loadData(true);
     const timer = setInterval(() => loadData(false), AUTO_REFRESH_MS);
