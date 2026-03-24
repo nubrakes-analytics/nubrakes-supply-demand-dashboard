@@ -41,6 +41,9 @@ const STATUS_COLOR = {
 };
 
 const BASELINE_WEEKS = 12;
+const AUTO_REFRESH_MS = 5 * 60 * 1000;
+const DATA_URL =
+  "https://nubrakes-analytics.github.io/NuBrakes-Copilot/data/fact_nubrakes_supply_demand_daily.json";
 
 // ── Responsive hook ───────────────────────────────────────────────────────────
 const useBreakpoint = () => {
@@ -65,12 +68,24 @@ const useBreakpoint = () => {
 const num = (v) =>
   v === "" || v == null || Number.isNaN(Number(v)) ? 0 : Number(v);
 
+const str = (v) => (v == null ? "" : String(v));
+
 const getChicagoTodayStr = () =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Chicago",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+  }).format(new Date());
+
+const getChicagoNowLabel = () =>
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
   }).format(new Date());
 
 const getWeekStartMonday = (dateStr) => {
@@ -84,6 +99,17 @@ const getWeekStartMonday = (dateStr) => {
   const mm = String(dt.getMonth() + 1).padStart(2, "0");
   const dd = String(dt.getDate()).padStart(2, "0");
   return `${yy}-${mm}-${dd}`;
+};
+
+const getLatestDataDate = (rows) => {
+  const candidates = rows
+    .map((r) =>
+      str(r.date || r.day || r.created_at || r.createdAt || r.ds).slice(0, 10)
+    )
+    .filter((v) => /^\d{4}-\d{2}-\d{2}$/.test(v))
+    .sort();
+
+  return candidates.length ? candidates[candidates.length - 1] : "";
 };
 
 const aggWeek = (rows) => {
@@ -116,8 +142,9 @@ const aggWeek = (rows) => {
 
   const mktMax = {};
   rows.forEach((d) => {
+    const market = str(d.market);
     const v = num(d.techs);
-    mktMax[d.market] = Math.max(mktMax[d.market] || 0, v);
+    mktMax[market] = Math.max(mktMax[market] || 0, v);
   });
 
   r.techs = Object.values(mktMax).reduce((a, b) => a + b, 0);
@@ -127,7 +154,8 @@ const aggWeek = (rows) => {
 const groupByWeek = (rows) => {
   const map = {};
   rows.forEach((d) => {
-    const wk = String(d.week).slice(0, 10);
+    const wk = str(d.week).slice(0, 10);
+    if (!wk) return;
     if (!map[wk]) map[wk] = [];
     map[wk].push(d);
   });
@@ -164,7 +192,7 @@ const buildBaselines = (allWeeks, pastWeeks, markets) => {
   return markets.reduce((acc, market) => {
     const weeklyStats = baselineWeekKeys
       .map((wk) => {
-        const rows = (allWeeks[wk] || []).filter((r) => r.market === market);
+        const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
         const a = aggWeek(rows);
         return {
           leads: a.leads,
@@ -349,13 +377,16 @@ const TT = ({ active, payload, label, showDelta = false }) => {
   );
 };
 
-const DeltaLabel = ({ x, y, width, value, data, dataKey, pwKey }) => {
+const DeltaLabel = ({ x, y, width, value, index, data, dataKey, pwKey }) => {
   if (!data || value === undefined || value === null) return null;
-  const row = data.find((d) => d[dataKey] === value);
+
+  const row =
+    typeof index === "number" && data[index] ? data[index] : null;
+
   if (!row) return null;
 
   const prev = row[pwKey];
-  if (!prev || prev === 0) return null;
+  if (prev == null || prev === 0) return null;
 
   const p = +(((value - prev) / prev) * 100).toFixed(1);
   const up = p >= 0;
@@ -502,31 +533,54 @@ export default function App() {
   const [rawData, setRawData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("scorecard");
-  // null = default to last completed week
   const [selectedWeek, setSelectedWeek] = useState(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState("");
+  const [loadError, setLoadError] = useState("");
   const bp = useBreakpoint();
 
   useEffect(() => {
-    fetch(
-      "https://raw.githubusercontent.com/nubrakes-analytics/NuBrakes-Copilot/1e0ec647dc2c42e08444361d8e26fd03816322d7/data/fact_nubrakes_supply_demand_daily.json"
-    )
-      .then((r) => {
-        if (!r.ok) throw new Error(`Failed to load dataset: ${r.status}`);
-        return r.json();
-      })
-      .then((d) => {
+    let isMounted = true;
+
+    const loadData = async (isFirstLoad = false) => {
+      if (isFirstLoad) setLoading(true);
+
+      try {
+        const res = await fetch(`${DATA_URL}?ts=${Date.now()}`, {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache, no-store, max-age=0",
+            Pragma: "no-cache",
+          },
+        });
+
+        if (!res.ok) {
+          throw new Error(`Failed to load dataset: ${res.status}`);
+        }
+
+        const d = await res.json();
+
+        if (!isMounted) return;
+
         setRawData(Array.isArray(d) ? d : []);
-      })
-      .catch((err) => {
-        console.error(
-          "fact_nubrakes_supply_demand_daily.json load failed",
-          err
-        );
+        setLastLoadedAt(getChicagoNowLabel());
+        setLoadError("");
+      } catch (err) {
+        console.error("fact_nubrakes_supply_demand_daily.json load failed", err);
+        if (!isMounted) return;
         setRawData([]);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+        setLoadError(err?.message || "Dataset load failed");
+      } finally {
+        if (isMounted && isFirstLoad) setLoading(false);
+      }
+    };
+
+    loadData(true);
+    const timer = setInterval(() => loadData(false), AUTO_REFRESH_MS);
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
   }, []);
 
   const derived = useMemo(() => {
@@ -540,6 +594,8 @@ export default function App() {
         PREV_WK: "",
         allWeekKeys: [],
         lastCompletedWeek: "",
+        latestAvailableWeek: "",
+        latestDataDate: "",
         curByMkt: [],
         prevByMkt: [],
         mktCompare: [],
@@ -558,16 +614,17 @@ export default function App() {
     const thisWeekStart = getWeekStartMonday(todayStr);
 
     const pastWeeks = weekKeys.filter((k) => k < thisWeekStart);
+    const latestAvailableWeek = weekKeys[weekKeys.length - 1] || "";
 
-    // Last completed week is always the most recent past week
     const lastCompletedWeek =
-      pastWeeks[pastWeeks.length - 1] || weekKeys[weekKeys.length - 1];
+      pastWeeks[pastWeeks.length - 1] || latestAvailableWeek;
 
-    // selectedWeek=null defaults to last completed week
-    const CUR_WK = selectedWeek || lastCompletedWeek;
+    const safeSelectedWeek =
+      selectedWeek && weekKeys.includes(selectedWeek) ? selectedWeek : null;
+
+    const CUR_WK = safeSelectedWeek || lastCompletedWeek;
     const curIdx = weekKeys.indexOf(CUR_WK);
-    const PREV_WK =
-      curIdx > 0 ? weekKeys[curIdx - 1] : CUR_WK;
+    const PREV_WK = curIdx > 0 ? weekKeys[curIdx - 1] : CUR_WK;
 
     const curRows = allWeeks[CUR_WK] || [];
     const prevRows = allWeeks[PREV_WK] || [];
@@ -575,16 +632,16 @@ export default function App() {
     const CUR = derive(aggWeek(curRows));
     const PREV = derive(aggWeek(prevRows));
 
-    const MARKETS = [...new Set(RAW.map((r) => r.market))].sort();
+    const MARKETS = [...new Set(RAW.map((r) => str(r.market)).filter(Boolean))].sort();
 
     const curByMkt = MARKETS.map((m) => ({
       market: m,
-      ...derive(aggWeek(curRows.filter((r) => r.market === m))),
+      ...derive(aggWeek(curRows.filter((r) => str(r.market) === m))),
     }));
 
     const prevByMkt = MARKETS.map((m) => ({
       market: m,
-      ...derive(aggWeek(prevRows.filter((r) => r.market === m))),
+      ...derive(aggWeek(prevRows.filter((r) => str(r.market) === m))),
     }));
 
     const mktCompare = MARKETS.map((m) => {
@@ -606,8 +663,8 @@ export default function App() {
 
     const curByDow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
       (dow) => {
-        const cR = curRows.filter((r) => r.dow === dow);
-        const pR = prevRows.filter((r) => r.dow === dow);
+        const cR = curRows.filter((r) => str(r.dow) === dow);
+        const pR = prevRows.filter((r) => str(r.dow) === dow);
         const c = cR.length ? derive(aggWeek(cR)) : null;
         const p = pR.length ? derive(aggWeek(pR)) : null;
 
@@ -626,7 +683,9 @@ export default function App() {
           techs: c?.techs || 0,
           techs_pw: p?.techs || 0,
           util: c?.utilization || 0,
+          util_pw: p?.utilization || 0,
           avail: c?.slotAvailPct || 0,
+          avail_pw: p?.slotAvailPct || 0,
         };
       }
     );
@@ -638,11 +697,11 @@ export default function App() {
         const a = derive(aggWeek(rows));
 
         const wdSlots = rows
-          .filter((r) => ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(r.dow))
+          .filter((r) => ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(str(r.dow)))
           .reduce((s, r) => s + num(r.slots), 0);
 
         const weSlots = rows
-          .filter((r) => ["Sat", "Sun"].includes(r.dow))
+          .filter((r) => ["Sat", "Sun"].includes(str(r.dow)))
           .reduce((s, r) => s + num(r.slots), 0);
 
         return {
@@ -702,6 +761,8 @@ export default function App() {
       PREV_WK,
       allWeekKeys: weekKeys,
       lastCompletedWeek,
+      latestAvailableWeek,
+      latestDataDate: getLatestDataDate(RAW),
       curByMkt,
       prevByMkt,
       mktCompare,
@@ -713,19 +774,28 @@ export default function App() {
     };
   }, [rawData, selectedWeek]);
 
+  useEffect(() => {
+    if (!selectedWeek) return;
+    if (!derived.allWeekKeys.includes(selectedWeek)) {
+      setSelectedWeek(null);
+    }
+  }, [derived.allWeekKeys, selectedWeek]);
+
   if (loading) {
     return <div style={{ padding: 24 }}>Loading...</div>;
   }
 
-  const { allWeekKeys, lastCompletedWeek, CUR_WK } = derived;
+  const { allWeekKeys, lastCompletedWeek, CUR_WK, latestAvailableWeek, latestDataDate } =
+    derived;
   const curIdx = allWeekKeys.indexOf(CUR_WK);
-  const isAtLastCompleted = selectedWeek === null || selectedWeek === lastCompletedWeek;
+  const isAtLastCompleted =
+    selectedWeek === null || selectedWeek === lastCompletedWeek;
   const canGoPrev = curIdx > 0;
-  const canGoNext = curIdx < allWeekKeys.length - 1;
+  const canGoNext = curIdx >= 0 && curIdx < allWeekKeys.length - 1;
 
   const navBtnStyle = (enabled) => ({
     background: C.surface,
-    border: `1px solid ${enabled ? C.border : C.border}`,
+    border: `1px solid ${C.border}`,
     borderRadius: 6,
     padding: "5px 12px",
     fontSize: 16,
@@ -765,6 +835,35 @@ export default function App() {
         <p style={{ margin: 0, fontSize: 11, color: C.muted }}>
           Week of {derived.CUR_WK || "-"} · vs {derived.PREV_WK || "-"}
         </p>
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            flexWrap: "wrap",
+            marginTop: 4,
+          }}
+        >
+          {latestDataDate && (
+            <p style={{ margin: 0, fontSize: 11, color: C.subtle }}>
+              Data through {latestDataDate}
+            </p>
+          )}
+          {lastLoadedAt && (
+            <p style={{ margin: 0, fontSize: 11, color: C.subtle }}>
+              Refreshed {lastLoadedAt} CT
+            </p>
+          )}
+          {latestAvailableWeek && (
+            <p style={{ margin: 0, fontSize: 11, color: C.subtle }}>
+              Latest available week: {latestAvailableWeek}
+            </p>
+          )}
+          {loadError && (
+            <p style={{ margin: 0, fontSize: 11, color: C.danger }}>
+              {loadError}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Week navigator */}
@@ -779,11 +878,17 @@ export default function App() {
           flexWrap: "wrap",
         }}
       >
-        <span style={{ fontSize: 12, color: C.muted, fontWeight: 600, marginRight: 2 }}>
+        <span
+          style={{
+            fontSize: 12,
+            color: C.muted,
+            fontWeight: 600,
+            marginRight: 2,
+          }}
+        >
           Week
         </span>
 
-        {/* Prev arrow */}
         <button
           disabled={!canGoPrev}
           onClick={() => {
@@ -795,7 +900,6 @@ export default function App() {
           ‹
         </button>
 
-        {/* Current week label */}
         <span
           style={{
             fontSize: 13,
@@ -812,7 +916,6 @@ export default function App() {
           {CUR_WK || "—"}
         </span>
 
-        {/* Next arrow */}
         <button
           disabled={!canGoNext}
           onClick={() => {
@@ -824,7 +927,6 @@ export default function App() {
           ›
         </button>
 
-        {/* Last Completed shortcut */}
         {!isAtLastCompleted && (
           <button
             onClick={() => setSelectedWeek(null)}
@@ -856,6 +958,25 @@ export default function App() {
           >
             Last completed week
           </span>
+        )}
+
+        {latestAvailableWeek && CUR_WK !== latestAvailableWeek && (
+          <button
+            onClick={() => setSelectedWeek(latestAvailableWeek)}
+            style={{
+              background: C.surface,
+              color: C.teal,
+              border: `1px solid ${C.teal}`,
+              borderRadius: 20,
+              padding: "5px 12px",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+            title={`Jump to latest available week (${latestAvailableWeek})`}
+          >
+            Latest Available →
+          </button>
         )}
       </div>
 
@@ -1026,7 +1147,14 @@ function Scorecard({ bp, CUR, PREV, weekTrendData, CUR_WK, PREV_WK }) {
 }
 
 // ── 2. DEMAND ─────────────────────────────────────────────────────────────────
-function DemandReview({ bp, CUR_WK, PREV_WK, curByDow, weekTrendData, mktCompare }) {
+function DemandReview({
+  bp,
+  CUR_WK,
+  PREV_WK,
+  curByDow,
+  weekTrendData,
+  mktCompare,
+}) {
   const [metric, setMetric] = useState("leads");
   const isMobile = bp === "mobile";
   const cols = isMobile ? 1 : 2;
@@ -1050,7 +1178,9 @@ function DemandReview({ bp, CUR_WK, PREV_WK, curByDow, weekTrendData, mktCompare
     <div>
       <SectionHeader title="Demand Review" sub={`${CUR_WK} vs ${PREV_WK}`} />
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+      <div
+        style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}
+      >
         {Object.entries(metricMap).map(([k, v]) => (
           <button
             key={k}
@@ -1071,13 +1201,31 @@ function DemandReview({ bp, CUR_WK, PREV_WK, curByDow, weekTrendData, mktCompare
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols},1fr)`, gap: 14 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${cols},1fr)`,
+          gap: 14,
+        }}
+      >
         <Card title="Week in Review vs Prior Week by Day">
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart data={curByDow} margin={{ top: 16, right: 4, left: -10, bottom: 0 }}>
+            <BarChart
+              data={curByDow}
+              margin={{ top: 16, right: 4, left: -10, bottom: 0 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis dataKey="day" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <XAxis
+                dataKey="day"
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <Tooltip content={<TT showDelta={true} />} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               <Bar
@@ -1085,7 +1233,13 @@ function DemandReview({ bp, CUR_WK, PREV_WK, curByDow, weekTrendData, mktCompare
                 fill={C.info}
                 radius={[3, 3, 0, 0]}
                 name={`${metricMap[metric]} (${String(CUR_WK).slice(5)})`}
-                label={<DeltaLabel data={curByDow} dataKey={metric} pwKey={metricPwMap[metric]} />}
+                label={
+                  <DeltaLabel
+                    data={curByDow}
+                    dataKey={metric}
+                    pwKey={metricPwMap[metric]}
+                  />
+                }
               />
               <Bar
                 dataKey={metricPwMap[metric]}
@@ -1099,10 +1253,22 @@ function DemandReview({ bp, CUR_WK, PREV_WK, curByDow, weekTrendData, mktCompare
 
         <Card title="Weekly Trend">
           <ResponsiveContainer width="100%" height={chartH}>
-            <LineChart data={weekTrendData} margin={{ top: 8, right: 4, left: -10, bottom: 0 }}>
+            <LineChart
+              data={weekTrendData}
+              margin={{ top: 8, right: 4, left: -10, bottom: 0 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis dataKey="week" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <XAxis
+                dataKey="week"
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <Tooltip content={<TT />} />
               <Line
                 type="monotone"
@@ -1116,9 +1282,15 @@ function DemandReview({ bp, CUR_WK, PREV_WK, curByDow, weekTrendData, mktCompare
           </ResponsiveContainer>
         </Card>
 
-        <Card title={`By Market — ${CUR_WK} vs ${PREV_WK}`} style={{ gridColumn: "1/-1" }}>
+        <Card
+          title={`By Market — ${CUR_WK} vs ${PREV_WK}`}
+          style={{ gridColumn: "1/-1" }}
+        >
           <ResponsiveContainer width="100%" height={isMobile ? 200 : 220}>
-            <BarChart data={mktCompare} margin={{ top: 16, right: 4, left: -10, bottom: 0 }}>
+            <BarChart
+              data={mktCompare}
+              margin={{ top: 16, right: 4, left: -10, bottom: 0 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
               <XAxis
                 dataKey="market"
@@ -1126,7 +1298,11 @@ function DemandReview({ bp, CUR_WK, PREV_WK, curByDow, weekTrendData, mktCompare
                 axisLine={false}
                 tickLine={false}
               />
-              <YAxis tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <Tooltip content={<TT showDelta={true} />} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               <Bar
@@ -1134,7 +1310,13 @@ function DemandReview({ bp, CUR_WK, PREV_WK, curByDow, weekTrendData, mktCompare
                 fill={C.info}
                 radius={[3, 3, 0, 0]}
                 name={`${metricMap[metric]} (${String(CUR_WK).slice(5)})`}
-                label={<DeltaLabel data={mktCompare} dataKey={metric} pwKey={`${metric}_pw`} />}
+                label={
+                  <DeltaLabel
+                    data={mktCompare}
+                    dataKey={metric}
+                    pwKey={`${metric}_pw`}
+                  />
+                }
               />
               <Bar
                 dataKey={`${metric}_pw`}
@@ -1151,7 +1333,14 @@ function DemandReview({ bp, CUR_WK, PREV_WK, curByDow, weekTrendData, mktCompare
 }
 
 // ── 3. CAPACITY ───────────────────────────────────────────────────────────────
-function CapacityReview({ bp, CUR_WK, PREV_WK, curByDow, utilByMktCompare, weekTrendData }) {
+function CapacityReview({
+  bp,
+  CUR_WK,
+  PREV_WK,
+  curByDow,
+  utilByMktCompare,
+  weekTrendData,
+}) {
   const isMobile = bp === "mobile";
   const cols = isMobile ? 1 : 2;
   const chartH = isMobile ? 180 : 210;
@@ -1160,13 +1349,32 @@ function CapacityReview({ bp, CUR_WK, PREV_WK, curByDow, utilByMktCompare, weekT
     <div>
       <SectionHeader title="Capacity Review" sub={`${CUR_WK} vs ${PREV_WK}`} />
 
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols},1fr)`, gap: 14 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${cols},1fr)`,
+          gap: 14,
+        }}
+      >
         <Card title="Slots & Techs by Day — Week in Review vs Prior Week">
           <ResponsiveContainer width="100%" height={chartH}>
-            <ComposedChart data={curByDow} margin={{ top: 16, right: 4, left: -10, bottom: 0 }}>
+            <ComposedChart
+              data={curByDow}
+              margin={{ top: 16, right: 4, left: -10, bottom: 0 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis dataKey="day" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="l" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <XAxis
+                dataKey="day"
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                yAxisId="l"
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <YAxis
                 yAxisId="r"
                 orientation="right"
@@ -1183,7 +1391,9 @@ function CapacityReview({ bp, CUR_WK, PREV_WK, curByDow, utilByMktCompare, weekT
                 fill={C.info}
                 radius={[3, 3, 0, 0]}
                 name={`Slots (${String(CUR_WK).slice(5)})`}
-                label={<DeltaLabel data={curByDow} dataKey="slots" pwKey="slots_pw" />}
+                label={
+                  <DeltaLabel data={curByDow} dataKey="slots" pwKey="slots_pw" />
+                }
               />
               <Bar
                 yAxisId="l"
@@ -1218,8 +1428,16 @@ function CapacityReview({ bp, CUR_WK, PREV_WK, curByDow, utilByMktCompare, weekT
 
         <Card title="Utilization by Market — Week in Review vs Prior Week">
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart data={utilByMktCompare} layout="vertical" margin={{ top: 4, right: 40, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false} />
+            <BarChart
+              data={utilByMktCompare}
+              layout="vertical"
+              margin={{ top: 4, right: 40, left: 0, bottom: 0 }}
+            >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke={C.border}
+                horizontal={false}
+              />
               <XAxis
                 type="number"
                 domain={[0, 100]}
@@ -1243,16 +1461,44 @@ function CapacityReview({ bp, CUR_WK, PREV_WK, curByDow, utilByMktCompare, weekT
                 dataKey="util"
                 radius={[0, 3, 3, 0]}
                 name={`Util% (${String(CUR_WK).slice(5)})`}
-                label={<DeltaLabel data={utilByMktCompare} dataKey="util" pwKey="util_pw" />}
+                label={
+                  <DeltaLabel
+                    data={utilByMktCompare}
+                    dataKey="util"
+                    pwKey="util_pw"
+                  />
+                }
               >
                 {utilByMktCompare.map((r, i) => (
-                  <Cell key={i} fill={r.util >= 85 ? C.success : r.util >= 60 ? C.warning : C.danger} />
+                  <Cell
+                    key={i}
+                    fill={
+                      r.util >= 85
+                        ? C.success
+                        : r.util >= 60
+                        ? C.warning
+                        : C.danger
+                    }
+                  />
                 ))}
               </Bar>
 
-              <Bar dataKey="util_pw" radius={[0, 3, 3, 0]} name={`Util% (${String(PREV_WK).slice(5)})`}>
+              <Bar
+                dataKey="util_pw"
+                radius={[0, 3, 3, 0]}
+                name={`Util% (${String(PREV_WK).slice(5)})`}
+              >
                 {utilByMktCompare.map((r, i) => (
-                  <Cell key={i} fill={`${r.util_pw >= 85 ? C.success : r.util_pw >= 60 ? C.warning : C.danger}55`} />
+                  <Cell
+                    key={i}
+                    fill={`${
+                      r.util_pw >= 85
+                        ? C.success
+                        : r.util_pw >= 60
+                        ? C.warning
+                        : C.danger
+                    }55`}
+                  />
                 ))}
               </Bar>
             </BarChart>
@@ -1261,9 +1507,17 @@ function CapacityReview({ bp, CUR_WK, PREV_WK, curByDow, utilByMktCompare, weekT
 
         <Card title="Utilization % Trend" style={{ gridColumn: "1/-1" }}>
           <ResponsiveContainer width="100%" height={isMobile ? 160 : 200}>
-            <LineChart data={weekTrendData} margin={{ top: 8, right: 4, left: -10, bottom: 0 }}>
+            <LineChart
+              data={weekTrendData}
+              margin={{ top: 8, right: 4, left: -10, bottom: 0 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis dataKey="week" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <XAxis
+                dataKey="week"
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <YAxis
                 domain={[0, 100]}
                 tick={{ fill: C.muted, fontSize: 10 }}
@@ -1284,12 +1538,27 @@ function CapacityReview({ bp, CUR_WK, PREV_WK, curByDow, utilByMktCompare, weekT
           </ResponsiveContainer>
         </Card>
 
-        <Card title="Weekday vs Weekend Slot Capacity Trend" style={{ gridColumn: "1/-1" }}>
+        <Card
+          title="Weekday vs Weekend Slot Capacity Trend"
+          style={{ gridColumn: "1/-1" }}
+        >
           <ResponsiveContainer width="100%" height={isMobile ? 160 : 200}>
-            <LineChart data={weekTrendData} margin={{ top: 8, right: 4, left: -10, bottom: 0 }}>
+            <LineChart
+              data={weekTrendData}
+              margin={{ top: 8, right: 4, left: -10, bottom: 0 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis dataKey="week" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <XAxis
+                dataKey="week"
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <Tooltip content={<TT />} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               <Line
@@ -1323,30 +1592,75 @@ function WorkMix({ bp, weekMixData, curByMkt }) {
 
   return (
     <div>
-      <SectionHeader title="Work Mix Review" sub="Revenue vs non-revenue activity mix" />
+      <SectionHeader
+        title="Work Mix Review"
+        sub="Revenue vs non-revenue activity mix"
+      />
 
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols},1fr)`, gap: 14 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${cols},1fr)`,
+          gap: 14,
+        }}
+      >
         <Card title="Activity Mix by Week">
           <ResponsiveContainer width="100%" height={isMobile ? 180 : 220}>
-            <BarChart data={weekMixData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+            <BarChart
+              data={weekMixData}
+              margin={{ top: 4, right: 4, left: -10, bottom: 0 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis dataKey="week" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <XAxis
+                dataKey="week"
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <Tooltip content={<TT />} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               <Bar dataKey="completed" stackId="a" fill={C.success} name="Completed" />
               <Bar dataKey="warranty" stackId="a" fill={C.warning} name="Warranty" />
-              <Bar dataKey="diagnostic" stackId="a" fill={C.info} name="Diagnostic" />
-              <Bar dataKey="serviceCall" stackId="a" fill={C.danger} name="Service Call" radius={[3, 3, 0, 0]} />
+              <Bar
+                dataKey="diagnostic"
+                stackId="a"
+                fill={C.info}
+                name="Diagnostic"
+              />
+              <Bar
+                dataKey="serviceCall"
+                stackId="a"
+                fill={C.danger}
+                name="Service Call"
+                radius={[3, 3, 0, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
         </Card>
 
         <Card title="Jobs per Tech by Market">
           <ResponsiveContainer width="100%" height={isMobile ? 180 : 220}>
-            <BarChart data={curByMkt.filter((m) => m.techs > 0)} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false} />
-              <XAxis type="number" tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+            <BarChart
+              data={curByMkt.filter((m) => m.techs > 0)}
+              layout="vertical"
+              margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+            >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke={C.border}
+                horizontal={false}
+              />
+              <XAxis
+                type="number"
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <YAxis
                 dataKey="market"
                 type="category"
@@ -1360,16 +1674,31 @@ function WorkMix({ bp, weekMixData, curByMkt }) {
                 {curByMkt
                   .filter((m) => m.techs > 0)
                   .map((r, i) => (
-                    <Cell key={i} fill={r.jobsPerTech >= 3 ? C.success : r.jobsPerTech >= 1.5 ? C.warning : C.danger} />
+                    <Cell
+                      key={i}
+                      fill={
+                        r.jobsPerTech >= 3
+                          ? C.success
+                          : r.jobsPerTech >= 1.5
+                          ? C.warning
+                          : C.danger
+                      }
+                    />
                   ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </Card>
 
-        <Card title="Revenue vs Non-Revenue by Market" style={{ gridColumn: "1/-1" }}>
+        <Card
+          title="Revenue vs Non-Revenue by Market"
+          style={{ gridColumn: "1/-1" }}
+        >
           <ResponsiveContainer width="100%" height={isMobile ? 180 : 200}>
-            <BarChart data={curByMkt} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+            <BarChart
+              data={curByMkt}
+              margin={{ top: 4, right: 4, left: -10, bottom: 0 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
               <XAxis
                 dataKey="market"
@@ -1377,13 +1706,38 @@ function WorkMix({ bp, weekMixData, curByMkt }) {
                 axisLine={false}
                 tickLine={false}
               />
-              <YAxis tick={{ fill: C.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <Tooltip content={<TT />} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="completed_jobs" stackId="a" fill={C.success} name="Completed" />
-              <Bar dataKey="warranty_checks" stackId="a" fill={C.warning} name="Warranty" />
-              <Bar dataKey="diagnostics" stackId="a" fill={C.info} name="Diagnostic" />
-              <Bar dataKey="service_calls" stackId="a" fill={C.danger} name="Service Call" radius={[3, 3, 0, 0]} />
+              <Bar
+                dataKey="completed_jobs"
+                stackId="a"
+                fill={C.success}
+                name="Completed"
+              />
+              <Bar
+                dataKey="warranty_checks"
+                stackId="a"
+                fill={C.warning}
+                name="Warranty"
+              />
+              <Bar
+                dataKey="diagnostics"
+                stackId="a"
+                fill={C.info}
+                name="Diagnostic"
+              />
+              <Bar
+                dataKey="service_calls"
+                stackId="a"
+                fill={C.danger}
+                name="Service Call"
+                radius={[3, 3, 0, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
         </Card>
@@ -1407,7 +1761,7 @@ function ActionTable({ bp, actionTableData, CUR_WK }) {
         return asc ? av.localeCompare(bv) : bv.localeCompare(av);
       }
 
-      return asc ? av - bv : bv - av;
+      return asc ? (av || 0) - (bv || 0) : (bv || 0) - (av || 0);
     });
   }, [actionTableData, sort, asc]);
 
@@ -1449,7 +1803,9 @@ function ActionTable({ bp, actionTableData, CUR_WK }) {
         ? `${v.toFixed(1)}x`
         : Math.round(v);
     return (
-      <td style={{ padding: "11px 12px", color: col, fontWeight: 600, fontSize: 12 }}>
+      <td
+        style={{ padding: "11px 12px", color: col, fontWeight: 600, fontSize: 12 }}
+      >
         {fv}
       </td>
     );
@@ -1471,8 +1827,19 @@ function ActionTable({ bp, actionTableData, CUR_WK }) {
                 boxShadow: "0 1px 3px rgba(0,0,0,.05)",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ color: C.primary, fontWeight: 800, fontSize: 14 }}>{r.market}</span>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 8,
+                }}
+              >
+                <span
+                  style={{ color: C.primary, fontWeight: 800, fontSize: 14 }}
+                >
+                  {r.market}
+                </span>
                 <span
                   style={{
                     background: `${STATUS_COLOR[r.status]}18`,
@@ -1488,7 +1855,14 @@ function ActionTable({ bp, actionTableData, CUR_WK }) {
                 </span>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 8 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3,1fr)",
+                  gap: 6,
+                  marginBottom: 8,
+                }}
+              >
                 {[
                   ["Leads", r.leads, "n", null],
                   ["Bk Rate", r.bookingRate, "%", [35, 55]],
@@ -1513,17 +1887,41 @@ function ActionTable({ bp, actionTableData, CUR_WK }) {
                       : Math.round(val);
 
                   return (
-                    <div key={lbl} style={{ background: C.panel, borderRadius: 6, padding: "6px 8px" }}>
-                      <div style={{ color: C.muted, fontSize: 9, fontWeight: 600, textTransform: "uppercase" }}>
+                    <div
+                      key={lbl}
+                      style={{
+                        background: C.panel,
+                        borderRadius: 6,
+                        padding: "6px 8px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: C.muted,
+                          fontSize: 9,
+                          fontWeight: 600,
+                          textTransform: "uppercase",
+                        }}
+                      >
                         {lbl}
                       </div>
-                      <div style={{ color: col, fontWeight: 700, fontSize: 13 }}>{fv}</div>
+                      <div style={{ color: col, fontWeight: 700, fontSize: 13 }}>
+                        {fv}
+                      </div>
                     </div>
                   );
                 })}
               </div>
 
-              <div style={{ color: C.muted, fontSize: 11, padding: "6px 8px", background: C.panel, borderRadius: 6 }}>
+              <div
+                style={{
+                  color: C.muted,
+                  fontSize: 11,
+                  padding: "6px 8px",
+                  background: C.panel,
+                  borderRadius: 6,
+                }}
+              >
                 → {r.action}
               </div>
             </div>
@@ -1604,16 +2002,34 @@ function ActionTable({ bp, actionTableData, CUR_WK }) {
                     borderBottom: `1px solid ${C.border}`,
                   }}
                 >
-                  <td style={{ padding: "11px 12px", color: C.primary, fontWeight: 700 }}>{r.market}</td>
-                  <td style={{ padding: "11px 12px", color: C.secondary }}>{r.leads}</td>
+                  <td
+                    style={{
+                      padding: "11px 12px",
+                      color: C.primary,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {r.market}
+                  </td>
+                  <td style={{ padding: "11px 12px", color: C.secondary }}>
+                    {r.leads}
+                  </td>
                   {cell(r.bookingRate, 35, 55)}
                   {cell(r.convRate, 25, 50)}
-                  <td style={{ padding: "11px 12px", color: C.secondary }}>{r.techs}</td>
-                  <td style={{ padding: "11px 12px", color: C.secondary }}>{r.slots}</td>
+                  <td style={{ padding: "11px 12px", color: C.secondary }}>
+                    {r.techs}
+                  </td>
+                  <td style={{ padding: "11px 12px", color: C.secondary }}>
+                    {r.slots}
+                  </td>
                   {cell(r.utilization, 50, 75)}
-                  <td style={{ padding: "11px 12px", color: C.secondary }}>{r.completed_jobs}</td>
+                  <td style={{ padding: "11px 12px", color: C.secondary }}>
+                    {r.completed_jobs}
+                  </td>
                   {cell(r.nonRevPct, 0, 30)}
-                  <td style={{ padding: "11px 12px", color: C.secondary }}>{r.lsr.toFixed(1)}x</td>
+                  <td style={{ padding: "11px 12px", color: C.secondary }}>
+                    {r.lsr.toFixed(1)}x
+                  </td>
                   <td style={{ padding: "11px 12px" }}>
                     <span
                       style={{
@@ -1634,16 +2050,32 @@ function ActionTable({ bp, actionTableData, CUR_WK }) {
                     <div style={{ color: C.muted, fontSize: 11 }}>{r.action}</div>
 
                     {r.baseline?.weeksUsed > 0 && (
-                      <div style={{ fontSize: 10, color: C.subtle, marginTop: 3 }}>
-                        {r.baseline.avgLeads !== null && `Avg leads: ${Math.round(r.baseline.avgLeads)}`}
-                        {r.baseline.avgBookRate !== null && ` · Bk: ${(r.baseline.avgBookRate * 100).toFixed(0)}%`}
-                        {r.baseline.avgCompRate !== null && ` · Cmp: ${(r.baseline.avgCompRate * 100).toFixed(0)}%`}
-                        {r.baseline.avgUtilRate !== null && ` · Util: ${(r.baseline.avgUtilRate * 100).toFixed(0)}%`}
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: C.subtle,
+                          marginTop: 3,
+                        }}
+                      >
+                        {r.baseline.avgLeads !== null &&
+                          `Avg leads: ${Math.round(r.baseline.avgLeads)}`}
+                        {r.baseline.avgBookRate !== null &&
+                          ` · Bk: ${(r.baseline.avgBookRate * 100).toFixed(0)}%`}
+                        {r.baseline.avgCompRate !== null &&
+                          ` · Cmp: ${(r.baseline.avgCompRate * 100).toFixed(0)}%`}
+                        {r.baseline.avgUtilRate !== null &&
+                          ` · Util: ${(r.baseline.avgUtilRate * 100).toFixed(0)}%`}
                       </div>
                     )}
 
                     {r.baseline?.weeksUsed === 0 && (
-                      <div style={{ fontSize: 10, color: C.warning, marginTop: 3 }}>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: C.warning,
+                          marginTop: 3,
+                        }}
+                      >
                         No baseline — using fallback
                       </div>
                     )}
