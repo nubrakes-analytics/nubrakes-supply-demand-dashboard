@@ -571,27 +571,22 @@ export default function App() {
         setRawData([]);
       }
     } finally {
-      if (isMounted && isFirstLoad) setLoading(false);
+      if (isMounted && isFirstLoad) {
+        setLoading(false);
+      }
     }
   };
 
   loadData(true);
-  const timer = setInterval(() => loadData(false), AUTO_REFRESH_MS);
+  const timer = setInterval(() => {
+    loadData(false);
+  }, AUTO_REFRESH_MS);
 
   return () => {
     isMounted = false;
     clearInterval(timer);
   };
 }, []);
-
-    loadData(true);
-    const timer = setInterval(() => loadData(false), AUTO_REFRESH_MS);
-
-    return () => {
-      isMounted = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   const derived = useMemo(() => {
     const RAW = rawData;
