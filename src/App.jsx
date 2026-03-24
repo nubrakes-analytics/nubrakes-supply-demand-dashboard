@@ -43,7 +43,7 @@ const STATUS_COLOR = {
 const BASELINE_WEEKS = 12;
 const AUTO_REFRESH_MS = 5 * 60 * 1000;
 const DATA_URL =
-  "https://nubrakes-analytics.github.io/NuBrakes-Copilot/data/fact_nubrakes_supply_demand_daily.json";
+  "https://cdn.jsdelivr.net/gh/nubrakes-analytics/NuBrakes-Copilot@main/data/fact_nubrakes_supply_demand_daily.json";
 
 // ── Responsive hook ───────────────────────────────────────────────────────────
 const useBreakpoint = () => {
