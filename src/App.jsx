@@ -112,6 +112,14 @@ const getLatestDataDate = (rows) => {
   return candidates.length ? candidates[candidates.length - 1] : "";
 };
 
+const countDistinctDays = (rows) => {
+  return new Set(
+    rows
+      .map((r) => str(r.date || r.day || r.ds).slice(0, 10))
+      .filter((v) => /^\d{4}-\d{2}-\d{2}$/.test(v))
+  ).size;
+};
+
 const aggWeek = (rows) => {
   const r = {
     leads: 0,
@@ -182,10 +190,7 @@ const derive = (agg) => ({
       : 0,
   nonRevPct:
     agg.utilized_slots > 0
-      ? pct(
-          agg.completed_job_0_rev,
-          agg.utilized_slots
-        )
+      ? pct(agg.completed_job_0_rev, agg.utilized_slots)
       : 0,
   completionYield:
     agg.booked_jobs > 0 ? pct(agg.completed_jobs, agg.booked_jobs) : 0,
@@ -821,10 +826,18 @@ export default function App() {
       MARKETS
     );
 
-    const curByMkt = MARKETS.map((m) => ({
-      market: m,
-      ...derive(aggWeek(curRows.filter((r) => str(r.market) === m))),
-    }));
+    const curByMkt = MARKETS.map((m) => {
+      const marketRows = curRows.filter((r) => str(r.market) === m);
+      const agg = aggWeek(marketRows);
+      const daysCount = countDistinctDays(marketRows);
+
+      return {
+        market: m,
+        ...derive(agg),
+        jobsPerDay:
+          daysCount > 0 ? +(agg.completed_jobs / daysCount).toFixed(1) : 0,
+      };
+    });
 
     const prevByMkt = MARKETS.map((m) => ({
       market: m,
@@ -1406,18 +1419,18 @@ export default function App() {
           />
         )}
 
-       {tab === "workmix" && (
-  <WorkMix
-    bp={bp}
-    rawData={rawData}
-    weekMixData={derived.weekMixData}
-    curByMkt={derived.curByMkt}
-    workMixCompare={derived.workMixCompare}
-    workMixSignal={derived.workMixSignal}
-    CUR_WK={derived.CUR_WK}
-    scorecardBaselineMeta={derived.scorecardBaselineMeta}
-  />
-)}
+        {tab === "workmix" && (
+          <WorkMix
+            bp={bp}
+            rawData={rawData}
+            weekMixData={derived.weekMixData}
+            curByMkt={derived.curByMkt}
+            workMixCompare={derived.workMixCompare}
+            workMixSignal={derived.workMixSignal}
+            CUR_WK={derived.CUR_WK}
+            scorecardBaselineMeta={derived.scorecardBaselineMeta}
+          />
+        )}
 
         {tab === "action" && (
           <ActionTable
@@ -2186,24 +2199,6 @@ function WorkMix({
   const cols = isMobile ? 1 : 2;
   const [mixScope, setMixScope] = useState("ALL");
 
-  const completedDelta =
-    workMixSignal.completed_base > 0
-      ? +(
-          ((workMixSignal.completed - workMixSignal.completed_base) /
-            workMixSignal.completed_base) *
-          100
-        ).toFixed(1)
-      : 0;
-
-  const completed0RevDelta =
-    workMixSignal.completed0Rev_base > 0
-      ? +(
-          ((workMixSignal.completed0Rev - workMixSignal.completed0Rev_base) /
-            workMixSignal.completed0Rev_base) *
-          100
-        ).toFixed(1)
-      : 0;
-
   const revenuePctByMarket = workMixCompare.map((r) => {
     const curTotal = num(r.completed) + num(r.completed0Rev);
     const baseTotal = num(r.completed_base) + num(r.completed0Rev_base);
@@ -2432,14 +2427,14 @@ function WorkMix({
                 width={isMobile ? 62 : 72}
               />
               <Tooltip content={<TT />} />
-              <Bar dataKey="completed_jobs" radius={[0, 3, 3, 0]} name="Jobs/Day">
+              <Bar dataKey="jobsPerDay" radius={[0, 3, 3, 0]} name="Jobs/Day">
                 {curByMkt.map((r, i) => (
                   <Cell
                     key={i}
                     fill={
-                      r.completed_jobs >= 20
+                      r.jobsPerDay >= 4
                         ? C.success
-                        : r.completed_jobs >= 10
+                        : r.jobsPerDay >= 2
                         ? C.warning
                         : C.danger
                     }
