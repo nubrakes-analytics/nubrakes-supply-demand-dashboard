@@ -263,7 +263,7 @@ const diagAction = (s) =>
   ({
     "Demand Constrained": "Increase lead volume",
     "Funnel Issue": "Improve booking follow-up",
-    "Supply Constrained": "Add slots / adjust staffing",
+    "Supply Constrained": "Add slots / adjust staffing / Decrease Marketing Spend (Demand)",
     "Conversion Issue": "Investigate low completion yield",
     Balanced: "Monitor — no immediate action",
   })[s];
