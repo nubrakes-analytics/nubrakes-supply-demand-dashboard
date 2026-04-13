@@ -624,10 +624,10 @@ export default function App() {
         weekMixData: [],
         utilByMktCompare: [],
         actionTableData: [],
-        utilTrendByMarket: [],
-        utilTrendByMarketChart: [],
-        dowMarketHeatmap: [],
         capacityTableData: [],
+        weeklyMarketHeatmap: [],
+        weeklyDowHeatmap: [],
+        markets: [],
       };
     }
 
@@ -857,6 +857,57 @@ export default function App() {
       const prev = prevByMkt.find((m) => m.market === market) || {};
       const trailing = utilTrendByMarket.find((m) => m.market === market);
 
+      const last16Weeks = weekKeys.filter((k) => k <= CUR_WK).slice(-16);
+
+    const weeklyMarketHeatmap = last16Weeks.map((wk) => {
+      const row = { week: wk.slice(5), fullWeek: wk };
+
+      MARKETS.forEach((market) => {
+        const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
+        const a = derive(aggWeek(rows));
+        row[market] = a.utilization;
+      });
+
+      return row;
+    });
+
+    const weeklyDowHeatmap = last16Weeks.map((wk) => {
+      const baseRows = allWeeks[wk] || [];
+
+      const allMarketsRow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
+        (acc, dow) => {
+          const a = derive(aggWeek(baseRows.filter((r) => str(r.dow) === dow)));
+          acc[dow] = a.utilization;
+          return acc;
+        },
+        {}
+      );
+
+      const byMarket = MARKETS.reduce((acc, market) => {
+        const marketRows = baseRows.filter((r) => str(r.market) === market);
+
+        acc[market] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
+          (dAcc, dow) => {
+            const a = derive(
+              aggWeek(marketRows.filter((r) => str(r.dow) === dow))
+            );
+            dAcc[dow] = a.utilization;
+            return dAcc;
+          },
+          {}
+        );
+
+        return acc;
+      }, {});
+
+      return {
+        week: wk.slice(5),
+        fullWeek: wk,
+        allMarkets: allMarketsRow,
+        byMarket,
+      };
+    });
+
       return {
         market,
         slots: cur.slots || 0,
@@ -889,10 +940,10 @@ export default function App() {
       weekMixData,
       utilByMktCompare,
       actionTableData,
-      utilTrendByMarket,
-      utilTrendByMarketChart,
-      dowMarketHeatmap,
       capacityTableData,
+      weeklyMarketHeatmap,
+      weeklyDowHeatmap,
+      markets: MARKETS,
     };
   }, [rawData, selectedWeek]);
 
@@ -1168,20 +1219,18 @@ export default function App() {
           />
         )}
 
-        {tab === "capacity" && (
-          <CapacityReview
-            bp={bp}
-            CUR_WK={derived.CUR_WK}
-            PREV_WK={derived.PREV_WK}
-            curByDow={derived.curByDow}
-            utilByMktCompare={derived.utilByMktCompare}
-            weekTrendData={derived.weekTrendData}
-            utilTrendByMarket={derived.utilTrendByMarket}
-            utilTrendByMarketChart={derived.utilTrendByMarketChart}
-            dowMarketHeatmap={derived.dowMarketHeatmap}
-            capacityTableData={derived.capacityTableData}
-          />
-        )}
+       {{tab === "capacity" && (
+  <CapacityReview
+    bp={bp}
+    CUR_WK={derived.CUR_WK}
+    PREV_WK={derived.PREV_WK}
+    curByDow={derived.curByDow}
+    capacityTableData={derived.capacityTableData}
+    weeklyMarketHeatmap={derived.weeklyMarketHeatmap}
+    weeklyDowHeatmap={derived.weeklyDowHeatmap}
+    markets={derived.markets}
+  />
+)}
 
         {tab === "workmix" && (
           <WorkMix
@@ -1460,11 +1509,12 @@ function CapacityReview({
   CUR_WK,
   PREV_WK,
   curByDow,
-  utilTrendByMarket,
-  utilTrendByMarketChart,
-  dowMarketHeatmap,
   capacityTableData,
+  weeklyMarketHeatmap,
+  weeklyDowHeatmap,
+  markets,
 }) {
+  const [heatmapScope, setHeatmapScope] = useState("All Markets");
   const isMobile = bp === "mobile";
   const cols = isMobile ? 1 : 2;
   const chartH = isMobile ? 190 : 220;
@@ -1673,39 +1723,35 @@ function CapacityReview({
           <ResponsiveContainer width="100%" height={chartH}>
             <ComposedChart
               data={capacityTableData}
-              layout="vertical"
-              margin={{ top: 4, right: 50, left: 0, bottom: 0 }}
+              margin={{ top: 12, right: 12, left: -10, bottom: 0 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
               <XAxis
-                type="number"
+                dataKey="market"
+                tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
                 domain={[0, 100]}
                 tick={{ fill: C.muted, fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
                 unit="%"
               />
-              <YAxis
-                dataKey="market"
-                type="category"
-                tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
-                axisLine={false}
-                tickLine={false}
-                width={isMobile ? 62 : 80}
-              />
               <Tooltip content={<TT showDelta={true} />} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
 
               <Bar
                 dataKey="util"
-                radius={[0, 3, 3, 0]}
+                radius={[3, 3, 0, 0]}
                 fill={C.info}
                 name={`Util% (${String(CUR_WK).slice(5)})`}
                 label={<DeltaLabel data={capacityTableData} value={undefined} pwKey="util_pw" />}
               />
               <Bar
                 dataKey="util_pw"
-                radius={[0, 3, 3, 0]}
+                radius={[3, 3, 0, 0]}
                 fill={`${C.subtle}99`}
                 name={`Util% (${String(PREV_WK).slice(5)})`}
               />
@@ -1721,44 +1767,7 @@ function CapacityReview({
           </ResponsiveContainer>
         </Card>
 
-        <Card title="Historical Utilization Trend by Market" style={{ gridColumn: "1/-1" }}>
-          <ResponsiveContainer width="100%" height={isMobile ? 220 : 280}>
-            <LineChart
-              data={utilTrendByMarketChart}
-              margin={{ top: 8, right: 12, left: -10, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis
-                dataKey="week"
-                tick={{ fill: C.muted, fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                domain={[0, 100]}
-                tick={{ fill: C.muted, fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-                unit="%"
-              />
-              <Tooltip content={<TT />} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              {utilTrendByMarket.map((m, i) => (
-                <Line
-                  key={m.market}
-                  type="monotone"
-                  dataKey={m.market}
-                  stroke={MARKET_LINE_COLORS[i % MARKET_LINE_COLORS.length]}
-                  strokeWidth={2}
-                  dot={false}
-                  name={m.market}
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </Card>
-
-        <Card title="Utilization Heatmap — Day of Week by Market" style={{ gridColumn: "1/-1" }}>
+        <Card title="Utilization Heatmap by Market — Last 16 Weeks" style={{ gridColumn: "1/-1" }}>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 6 }}>
               <thead>
@@ -1769,29 +1778,31 @@ function CapacityReview({
                       fontSize: 11,
                       color: C.muted,
                       paddingBottom: 4,
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    Market
+                    Week
                   </th>
-                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                  {markets.map((market) => (
                     <th
-                      key={d}
+                      key={market}
                       style={{
                         textAlign: "center",
                         fontSize: 11,
                         color: C.muted,
                         paddingBottom: 4,
-                        minWidth: 60,
+                        minWidth: 74,
+                        whiteSpace: "nowrap",
                       }}
                     >
-                      {d}
+                      {market}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {dowMarketHeatmap.map((r) => (
-                  <tr key={r.market}>
+                {weeklyMarketHeatmap.map((r) => (
+                  <tr key={r.fullWeek}>
                     <td
                       style={{
                         fontSize: 12,
@@ -1801,29 +1812,136 @@ function CapacityReview({
                         paddingRight: 8,
                       }}
                     >
-                      {r.market}
+                      {r.week}
                     </td>
-                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-                      <td key={d}>
-                        <div
-                          style={{
-                            background: heatColor(r[d]),
-                            color: heatText(r[d]),
-                            border: `1px solid ${C.border}`,
-                            borderRadius: 8,
-                            padding: "10px 6px",
-                            textAlign: "center",
-                            fontSize: 11,
-                            fontWeight: 700,
-                          }}
-                          title={`${r.market} ${d}: ${r[d].toFixed(1)}%`}
-                        >
-                          {r[d] ? `${r[d].toFixed(1)}%` : "—"}
-                        </div>
-                      </td>
-                    ))}
+                    {markets.map((market) => {
+                      const v = r[market] || 0;
+                      return (
+                        <td key={market}>
+                          <div
+                            style={{
+                              background: heatColor(v),
+                              color: heatText(v),
+                              border: `1px solid ${C.border}`,
+                              borderRadius: 8,
+                              padding: "10px 6px",
+                              textAlign: "center",
+                              fontSize: 11,
+                              fontWeight: 700,
+                            }}
+                            title={`${r.week} · ${market}: ${v.toFixed(1)}%`}
+                          >
+                            {v ? `${v.toFixed(1)}%` : "—"}
+                          </div>
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card title="Utilization Heatmap — Day of Week" style={{ gridColumn: "1/-1" }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+            {["All Markets", ...markets].map((market) => (
+              <button
+                key={market}
+                onClick={() => setHeatmapScope(market)}
+                style={{
+                  background: heatmapScope === market ? C.info : C.surface,
+                  color: heatmapScope === market ? "#fff" : C.muted,
+                  border: `1px solid ${heatmapScope === market ? C.info : C.border}`,
+                  borderRadius: 20,
+                  padding: "5px 14px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {market}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 6 }}>
+              <thead>
+                <tr>
+                  <th
+                    style={{
+                      textAlign: "left",
+                      fontSize: 11,
+                      color: C.muted,
+                      paddingBottom: 4,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Week
+                  </th>
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                    <th
+                      key={d}
+                      style={{
+                        textAlign: "center",
+                        fontSize: 11,
+                        color: C.muted,
+                        paddingBottom: 4,
+                        minWidth: 64,
+                      }}
+                    >
+                      {d}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {weeklyDowHeatmap.map((r) => {
+                  const row =
+                    heatmapScope === "All Markets"
+                      ? r.allMarkets
+                      : r.byMarket[heatmapScope] || {};
+
+                  return (
+                    <tr key={r.fullWeek}>
+                      <td
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: C.primary,
+                          whiteSpace: "nowrap",
+                          paddingRight: 8,
+                        }}
+                      >
+                        {r.week}
+                      </td>
+                      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => {
+                        const v = row[d] || 0;
+                        return (
+                          <td key={d}>
+                            <div
+                              style={{
+                                background: heatColor(v),
+                                color: heatText(v),
+                                border: `1px solid ${C.border}`,
+                                borderRadius: 8,
+                                padding: "10px 6px",
+                                textAlign: "center",
+                                fontSize: 11,
+                                fontWeight: 700,
+                              }}
+                              title={`${r.week} · ${heatmapScope} · ${d}: ${v.toFixed(1)}%`}
+                            >
+                              {v ? `${v.toFixed(1)}%` : "—"}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
