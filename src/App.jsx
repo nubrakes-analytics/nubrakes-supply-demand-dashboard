@@ -186,6 +186,40 @@ const derive = (agg) => ({
     agg.utilized_slots > 0 ? pct(agg.completed_jobs, agg.utilized_slots) : 0,
 });
 
+const buildScorecardBaseline = (allWeeks, baselineWeeks) => {
+  if (!baselineWeeks.length) return derive(aggWeek([]));
+
+  const weekly = baselineWeeks.map((wk) => derive(aggWeek(allWeeks[wk] || [])));
+
+  const avg = (key) =>
+    weekly.length
+      ? weekly.reduce((sum, w) => sum + num(w[key]), 0) / weekly.length
+      : 0;
+
+  return {
+    leads: avg("leads"),
+    booked_jobs: avg("booked_jobs"),
+    completed_jobs: avg("completed_jobs"),
+    warranty_checks: avg("warranty_checks"),
+    diagnostics: avg("diagnostics"),
+    service_calls: avg("service_calls"),
+    utilized_slots: avg("utilized_slots"),
+    techs: avg("techs"),
+    slots: avg("slots"),
+    rev_job_slots_available: avg("rev_job_slots_available"),
+
+    bookingRate: avg("bookingRate"),
+    convRate: avg("convRate"),
+    utilization: avg("utilization"),
+    slotAvailPct: avg("slotAvailPct"),
+    lsr: avg("lsr"),
+    jobsPerTech: avg("jobsPerTech"),
+    nonRevPct: avg("nonRevPct"),
+    completionYield: avg("completionYield"),
+    revCapMix: avg("revCapMix"),
+  };
+};
+
 const buildBaselines = (allWeeks, pastWeeks, markets) => {
   const baselineWeekKeys = pastWeeks.slice(-(BASELINE_WEEKS + 1), -1);
 
@@ -650,10 +684,9 @@ export default function App() {
     const PREV = derive(aggWeek(prevRows));
 
     const scorecardBaselineWeeks = weekKeys.filter((k) => k < CUR_WK).slice(-12);
-    const scorecardBaselineRows = scorecardBaselineWeeks.flatMap(
-      (wk) => allWeeks[wk] || []
-    );
-    const BASE = derive(aggWeek(scorecardBaselineRows));
+const BASE = buildScorecardBaseline(allWeeks, scorecardBaselineWeeks);
+
+    
     const scorecardBaselineMeta = {
       weeksUsed: scorecardBaselineWeeks.length,
       startWeek: scorecardBaselineWeeks[0] || "",
