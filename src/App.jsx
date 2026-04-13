@@ -36,8 +36,8 @@ const STATUS_COLOR = {
   Balanced: C.success,
   "Demand Constrained": C.warning,
   "Supply Constrained": C.danger,
-  "Conversion Issue": C.purple,
-  "Execution Issue": C.info,
+  "Funnel Issue": C.purple,
+  "Conversion Issue": C.info,
 };
 
 const BASELINE_WEEKS = 12;
@@ -239,8 +239,8 @@ const diagStatus = (m, baselines) => {
   if (m.leads < 10) return "Demand Constrained";
   if (!b || b.weeksUsed < 4) {
     if (curUtilRate > 0.9) return "Supply Constrained";
-    if (curBookRate < 0.3) return "Conversion Issue";
-    if (m.booked_jobs >= 10 && curCompRate < 0.8) return "Execution Issue";
+    if (curBookRate < 0.3) return "Funnel Issue";
+    if (m.booked_jobs >= 10 && curCompRate < 0.8) return "Conversion Issue";
     return "Balanced";
   }
 
@@ -252,9 +252,9 @@ const diagStatus = (m, baselines) => {
   if (vUtilRate !== null && vUtilRate > 0.1 && curUtilRate > 0.75)
     return "Supply Constrained";
   if (vLeads !== null && vLeads < -0.2) return "Demand Constrained";
-  if (vBookRate !== null && vBookRate < -0.15) return "Conversion Issue";
+  if (vBookRate !== null && vBookRate < -0.15) return "Funnel Issue";
   if (m.booked_jobs >= 10 && vCompRate !== null && vCompRate < -0.25)
-    return "Execution Issue";
+    return "Conversion Issue";
 
   return "Balanced";
 };
@@ -262,9 +262,9 @@ const diagStatus = (m, baselines) => {
 const diagAction = (s) =>
   ({
     "Demand Constrained": "Increase lead volume",
-    "Conversion Issue": "Improve booking follow-up",
+    "Funnel Issue": "Improve booking follow-up",
     "Supply Constrained": "Add slots / adjust staffing",
-    "Execution Issue": "Investigate low completion yield",
+    "Conversion Issue": "Investigate low completion yield",
     Balanced: "Monitor — no immediate action",
   })[s];
 
