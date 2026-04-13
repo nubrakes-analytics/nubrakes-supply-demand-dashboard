@@ -923,21 +923,6 @@ const weeklyDowHeatmap = last16Weeks.map((wk) => {
   };
 });
 
-      return {
-        market,
-        slots: cur.slots || 0,
-        techs: cur.techs || 0,
-        util: cur.utilization || 0,
-        util_pw: prev.utilization || 0,
-        slotAvailPct: cur.slotAvailPct || 0,
-        jobsPerTech: cur.jobsPerTech || 0,
-        completed_jobs: cur.completed_jobs || 0,
-        trailingAvg: trailing?.trailingAvg || 0,
-        variancePct: trailing?.variancePct || 0,
-        direction: trailing?.direction || "Flat",
-      };
-    });
-
     return {
       CUR,
       PREV,
