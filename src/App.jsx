@@ -174,11 +174,16 @@ const derive = (agg) => ({
   slotAvailPct:
     agg.slots > 0 ? pct(agg.rev_job_slots_available, agg.slots) : 0,
   lsr: agg.slots > 0 ? +(agg.leads / agg.slots).toFixed(1) : 0,
-  jobsPerTech: agg.techs > 0 ? +(agg.completed_jobs / agg.techs).toFixed(1) : 0,
+  jobsPerTech:
+    agg.techs > 0
+      ? +(
+          (agg.completed_jobs + agg.completed_job_0_rev) / agg.techs
+        ).toFixed(1)
+      : 0,
   nonRevPct:
     agg.utilized_slots > 0
       ? pct(
-          agg.warranty_checks + agg.diagnostics + agg.service_calls,
+          agg.completed_job_0_rev,
           agg.utilized_slots
         )
       : 0,
@@ -2196,18 +2201,68 @@ function WorkMix({
         ).toFixed(1)
       : 0;
 
-  const selectedWeekCompare = [
-    {
-      metric: "Revenue Capacity Mix (Completed Job)",
-      current: workMixSignal.completed,
-      baseline: workMixSignal.completed_base,
-    },
-    {
-      metric: "Non-Revenue Mix (Completed Job 0 Rev)",
-      current: workMixSignal.completed0Rev,
-      baseline: workMixSignal.completed0Rev_base,
-    },
-  ];
+  const revenuePctByMarket = workMixCompare.map((r) => {
+    const curTotal = num(r.completed) + num(r.completed0Rev);
+    const baseTotal = num(r.completed_base) + num(r.completed0Rev_base);
+
+    return {
+      market: r.market,
+      revenuePct: curTotal > 0 ? +((num(r.completed) / curTotal) * 100).toFixed(1) : 0,
+      revenuePct_base:
+        baseTotal > 0
+          ? +((num(r.completed_base) / baseTotal) * 100).toFixed(1)
+          : 0,
+    };
+  });
+
+  const LastPointDeltaLabel = ({
+    x,
+    y,
+    index,
+    value,
+    data,
+    compareKey,
+    color,
+  }) => {
+    if (!data || index !== data.length - 1 || value == null) return null;
+
+    const row = data[index];
+    const base = row?.[compareKey];
+
+    if (base == null || base === 0) return null;
+
+    const pctChg = +(((value - base) / base) * 100).toFixed(1);
+
+    return (
+      <text
+        x={x + 8}
+        y={y - 8}
+        textAnchor="start"
+        fontSize={10}
+        fontWeight={700}
+        fill={pctChg >= 0 ? C.success : C.danger}
+      >
+        {pctChg >= 0 ? "+" : ""}
+        {pctChg}% vs 12W
+      </text>
+    );
+  };
+
+  const trendWithBaseline = weekMixData.map((r, idx, arr) => {
+    if (idx !== arr.length - 1) {
+      return {
+        ...r,
+        completed_base: null,
+        completed0Rev_base: null,
+      };
+    }
+
+    return {
+      ...r,
+      completed_base: workMixSignal.completed_base,
+      completed0Rev_base: workMixSignal.completed0Rev_base,
+    };
+  });
 
   return (
     <div>
@@ -2334,49 +2389,6 @@ function WorkMix({
           title="Revenue Capacity Mix vs Non-Revenue Mix by Week"
           style={{ gridColumn: "1/-1" }}
         >
-          <ResponsiveContainer width="100%" height={isMobile ? 220 : 260}>
-            <LineChart
-              data={weekMixData}
-              margin={{ top: 8, right: 12, left: -10, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis
-                dataKey="week"
-                tick={{ fill: C.muted, fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: C.muted, fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip content={<TT />} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Line
-                type="monotone"
-                dataKey="completed"
-                stroke={C.success}
-                strokeWidth={2.5}
-                dot={{ r: 3, fill: C.success, strokeWidth: 0 }}
-                name="Revenue Capacity Mix (Completed Job)"
-              />
-              <Line
-                type="monotone"
-                dataKey="completed0Rev"
-                stroke={C.purple}
-                strokeWidth={2.5}
-                dot={{ r: 3, fill: C.purple, strokeWidth: 0 }}
-                name="Non-Revenue Mix (Completed Job 0 Rev)"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </Card>
-
-        <Card
-          title={`Selected Week vs 12W Avg — ${CUR_WK}`}
-          style={{ gridColumn: "1/-1" }}
-        >
           <div
             style={{
               display: "flex",
@@ -2449,14 +2461,14 @@ function WorkMix({
           </div>
 
           <ResponsiveContainer width="100%" height={isMobile ? 220 : 260}>
-            <BarChart
-              data={selectedWeekCompare}
-              margin={{ top: 16, right: 4, left: 0, bottom: 0 }}
+            <LineChart
+              data={trendWithBaseline}
+              margin={{ top: 18, right: 48, left: -10, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
               <XAxis
-                dataKey="metric"
-                tick={{ fill: C.muted, fontSize: isMobile ? 9 : 10 }}
+                dataKey="week"
+                tick={{ fill: C.muted, fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -2465,19 +2477,80 @@ function WorkMix({
                 axisLine={false}
                 tickLine={false}
               />
+              <Tooltip content={<TT />} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+
+              <Line
+                type="monotone"
+                dataKey="completed"
+                stroke={C.success}
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: C.success, strokeWidth: 0 }}
+                name="Revenue Capacity Mix (Completed Job)"
+                label={
+                  <LastPointDeltaLabel
+                    data={trendWithBaseline}
+                    compareKey="completed_base"
+                    color={C.success}
+                  />
+                }
+              />
+
+              <Line
+                type="monotone"
+                dataKey="completed0Rev"
+                stroke={C.purple}
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: C.purple, strokeWidth: 0 }}
+                name="Non-Revenue Mix (Completed Job 0 Rev)"
+                label={
+                  <LastPointDeltaLabel
+                    data={trendWithBaseline}
+                    compareKey="completed0Rev_base"
+                    color={C.purple}
+                  />
+                }
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </Card>
+
+        <Card
+          title="Current Week vs 12W Avg — Revenue % by Market"
+          style={{ gridColumn: "1/-1" }}
+        >
+          <ResponsiveContainer width="100%" height={isMobile ? 220 : 260}>
+            <BarChart
+              data={revenuePctByMarket}
+              margin={{ top: 16, right: 4, left: -10, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+              <XAxis
+                dataKey="market"
+                tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+                unit="%"
+              />
               <Tooltip content={<TT showDelta={true} />} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               <Bar
-                dataKey="current"
-                fill={C.info}
+                dataKey="revenuePct"
+                fill={C.success}
                 radius={[3, 3, 0, 0]}
-                name={`${String(CUR_WK).slice(5)}`}
+                name={`Revenue % (${String(CUR_WK).slice(5)})`}
+                label={<DeltaLabel data={revenuePctByMarket} pwKey="revenuePct_base" />}
               />
               <Bar
-                dataKey="baseline"
+                dataKey="revenuePct_base"
                 fill={C.subtle}
                 radius={[3, 3, 0, 0]}
-                name="12W Avg"
+                name="Revenue % (12W Avg)"
               />
             </BarChart>
           </ResponsiveContainer>
