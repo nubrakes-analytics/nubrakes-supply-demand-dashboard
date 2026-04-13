@@ -270,6 +270,51 @@ const buildDemandBaseline = (allWeeks, baselineWeeks, markets) => {
   return { byDow, byMarket };
 };
 
+const buildWorkMixBaseline = (allWeeks, baselineWeeks, markets) => {
+  const byMarket = markets.map((market) => {
+    const weekly = baselineWeeks.map((wk) => {
+      const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
+      return derive(aggWeek(rows));
+    });
+
+    const avg = (key) =>
+      weekly.length
+        ? weekly.reduce((sum, w) => sum + num(w[key]), 0) / weekly.length
+        : 0;
+
+    return {
+      market,
+      completed_base: avg("completed_jobs"),
+      warranty_base: avg("warranty_checks"),
+      diagnostic_base: avg("diagnostics"),
+      serviceCall_base: avg("service_calls"),
+      nonRevPct_base: avg("nonRevPct"),
+      revCapMix_base: avg("revCapMix"),
+    };
+  });
+
+  const overallWeekly = baselineWeeks.map((wk) =>
+    derive(aggWeek(allWeeks[wk] || []))
+  );
+
+  const avgOverall = (key) =>
+    overallWeekly.length
+      ? overallWeekly.reduce((sum, w) => sum + num(w[key]), 0) / overallWeekly.length
+      : 0;
+
+  return {
+    byMarket,
+    overall: {
+      completed_base: avgOverall("completed_jobs"),
+      warranty_base: avgOverall("warranty_checks"),
+      diagnostic_base: avgOverall("diagnostics"),
+      serviceCall_base: avgOverall("service_calls"),
+      nonRevPct_base: avgOverall("nonRevPct"),
+      revCapMix_base: avgOverall("revCapMix"),
+    },
+  };
+};
+
 const buildBaselines = (allWeeks, pastWeeks, markets) => {
   const baselineWeekKeys = pastWeeks.slice(-(BASELINE_WEEKS + 1), -1);
 
@@ -701,6 +746,13 @@ export default function App() {
         curByDow: [],
         weekTrendData: [],
         weekMixData: [],
+        workMixCompare: [],
+        workMixSignal: {
+          nonRevPct: 0,
+          nonRevPct_base: 0,
+          revCapMix: 0,
+          revCapMix_base: 0,
+        },
         utilByMktCompare: [],
         actionTableData: [],
         capacityTableData: [],
@@ -753,6 +805,11 @@ export default function App() {
 
     const demandBaselineWeeks = weekKeys.filter((k) => k < CUR_WK).slice(-12);
     const demandBaseline = buildDemandBaseline(allWeeks, demandBaselineWeeks, MARKETS);
+    const workMixBaseline = buildWorkMixBaseline(
+      allWeeks,
+      demandBaselineWeeks,
+      MARKETS
+    );
 
     const curByMkt = MARKETS.map((m) => ({
       market: m,
@@ -850,6 +907,40 @@ export default function App() {
         };
       });
 
+    const workMixCompare = MARKETS.map((market) => {
+      const cur = curByMkt.find((m) => m.market === market) || {};
+      const base = workMixBaseline.byMarket.find((m) => m.market === market) || {};
+
+      return {
+        market,
+
+        completed: cur.completed_jobs || 0,
+        completed_base: base.completed_base || 0,
+
+        warranty: cur.warranty_checks || 0,
+        warranty_base: base.warranty_base || 0,
+
+        diagnostic: cur.diagnostics || 0,
+        diagnostic_base: base.diagnostic_base || 0,
+
+        serviceCall: cur.service_calls || 0,
+        serviceCall_base: base.serviceCall_base || 0,
+
+        nonRevPct: cur.nonRevPct || 0,
+        nonRevPct_base: base.nonRevPct_base || 0,
+
+        revCapMix: cur.revCapMix || 0,
+        revCapMix_base: base.revCapMix_base || 0,
+      };
+    });
+
+    const workMixSignal = {
+      nonRevPct: CUR.nonRevPct,
+      nonRevPct_base: workMixBaseline.overall.nonRevPct_base || 0,
+      revCapMix: CUR.revCapMix,
+      revCapMix_base: workMixBaseline.overall.revCapMix_base || 0,
+    };
+
     const utilByMktCompare = curByMkt
       .filter((m) => m.slots > 0)
       .map((m) => {
@@ -870,52 +961,6 @@ export default function App() {
         status: st,
         action: diagAction(st),
         baseline: marketBaselines[m.market],
-      };
-    });
-
-    const trailingWeeks = weekKeys.filter((k) => k <= CUR_WK).slice(-13);
-
-    const utilTrendByMarket = MARKETS.map((market) => {
-      const series = trailingWeeks.map((wk) => {
-        const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
-        const a = derive(aggWeek(rows));
-        return {
-          week: wk.slice(5),
-          fullWeek: wk,
-          util: a.utilization,
-          slots: a.slots,
-          techs: a.techs,
-          market,
-        };
-      });
-
-      const validUtil = series
-        .slice(0, -1)
-        .map((d) => d.util)
-        .filter((v) => v > 0);
-
-      const trailingAvg =
-        validUtil.length > 0
-          ? validUtil.reduce((s, v) => s + v, 0) / validUtil.length
-          : 0;
-
-      const currentUtil = series.length ? series[series.length - 1].util : 0;
-
-      return {
-        market,
-        trailingAvg,
-        currentUtil,
-        variancePct:
-          trailingAvg > 0
-            ? +(((currentUtil - trailingAvg) / trailingAvg) * 100).toFixed(1)
-            : 0,
-        direction:
-          trailingAvg > 0
-            ? currentUtil >= trailingAvg
-              ? "Above"
-              : "Below"
-            : "Flat",
-        series,
       };
     });
 
@@ -1044,6 +1089,8 @@ export default function App() {
       curByDow,
       weekTrendData,
       weekMixData,
+      workMixCompare,
+      workMixSignal,
       utilByMktCompare,
       actionTableData,
       capacityTableData,
@@ -1065,8 +1112,14 @@ export default function App() {
     return <div style={{ padding: 24 }}>Loading...</div>;
   }
 
-  const { allWeekKeys, lastCompletedWeek, CUR_WK, latestAvailableWeek, latestDataDate } =
-    derived;
+  const {
+    allWeekKeys,
+    lastCompletedWeek,
+    CUR_WK,
+    latestAvailableWeek,
+    latestDataDate,
+  } = derived;
+
   const curIdx = allWeekKeys.indexOf(CUR_WK);
   const isAtLastCompleted =
     selectedWeek === null || selectedWeek === lastCompletedWeek;
@@ -1345,6 +1398,10 @@ export default function App() {
             bp={bp}
             weekMixData={derived.weekMixData}
             curByMkt={derived.curByMkt}
+            workMixCompare={derived.workMixCompare}
+            workMixSignal={derived.workMixSignal}
+            CUR_WK={derived.CUR_WK}
+            scorecardBaselineMeta={derived.scorecardBaselineMeta}
           />
         )}
 
@@ -1527,12 +1584,7 @@ function DemandReview({
                 fill={C.info}
                 radius={[3, 3, 0, 0]}
                 name={`${metricMap[metric]} (${String(CUR_WK).slice(5)})`}
-                label={
-                  <DeltaLabel
-                    data={curByDow}
-                    pwKey={metricBaseMap[metric]}
-                  />
-                }
+                label={<DeltaLabel data={curByDow} pwKey={metricBaseMap[metric]} />}
               />
               <Bar
                 dataKey={metricBaseMap[metric]}
@@ -1603,12 +1655,7 @@ function DemandReview({
                 fill={C.info}
                 radius={[3, 3, 0, 0]}
                 name={`${metricMap[metric]} (${String(CUR_WK).slice(5)})`}
-                label={
-                  <DeltaLabel
-                    data={mktCompare}
-                    pwKey={`${metric}_base`}
-                  />
-                }
+                label={<DeltaLabel data={mktCompare} pwKey={`${metric}_base`} />}
               />
               <Bar
                 dataKey={`${metric}_base`}
@@ -1880,7 +1927,7 @@ function CapacityReview({
           </ResponsiveContainer>
         </Card>
 
-        <Card title="Utilization by Market — Current vs Prior + 3M Avg">
+        <Card title="Utilization by Market — Current vs 12W Avg">
           <ResponsiveContainer width="100%" height={isMobile ? 260 : 320}>
             <ComposedChart
               data={capacityTableData}
@@ -2111,16 +2158,97 @@ function CapacityReview({
 }
 
 // ── 4. WORK MIX ───────────────────────────────────────────────────────────────
-function WorkMix({ bp, weekMixData, curByMkt }) {
+function WorkMix({
+  bp,
+  weekMixData,
+  curByMkt,
+  workMixCompare,
+  workMixSignal,
+  CUR_WK,
+  scorecardBaselineMeta,
+}) {
   const isMobile = bp === "mobile";
   const cols = isMobile ? 1 : 2;
+
+  const nonRevDelta =
+    workMixSignal.nonRevPct_base > 0
+      ? +(
+          ((workMixSignal.nonRevPct - workMixSignal.nonRevPct_base) /
+            workMixSignal.nonRevPct_base) *
+          100
+        ).toFixed(1)
+      : 0;
+
+  const revCapDelta =
+    workMixSignal.revCapMix_base > 0
+      ? +(
+          ((workMixSignal.revCapMix - workMixSignal.revCapMix_base) /
+            workMixSignal.revCapMix_base) *
+          100
+        ).toFixed(1)
+      : 0;
 
   return (
     <div>
       <SectionHeader
         title="Work Mix Review"
-        sub="Revenue vs non-revenue activity mix"
+        sub={
+          scorecardBaselineMeta.weeksUsed > 0
+            ? `${CUR_WK} vs last ${scorecardBaselineMeta.weeksUsed}-week average (${scorecardBaselineMeta.startWeek} to ${scorecardBaselineMeta.endWeek})`
+            : "Revenue vs non-revenue activity mix"
+        }
       />
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "1fr" : "repeat(2, 1fr)",
+          gap: 10,
+          marginBottom: 14,
+        }}
+      >
+        <Card title="Signal — Non-Revenue Mix">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: C.primary }}>
+              {workMixSignal.nonRevPct.toFixed(1)}%
+            </div>
+            <div style={{ fontSize: 12, color: C.muted }}>
+              vs 12W avg {workMixSignal.nonRevPct_base.toFixed(1)}%
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: nonRevDelta >= 0 ? C.danger : C.success,
+              }}
+            >
+              {nonRevDelta >= 0 ? "+" : ""}
+              {nonRevDelta}% relative change
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Signal — Revenue Capacity Mix">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: C.primary }}>
+              {workMixSignal.revCapMix.toFixed(1)}%
+            </div>
+            <div style={{ fontSize: 12, color: C.muted }}>
+              vs 12W avg {workMixSignal.revCapMix_base.toFixed(1)}%
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: revCapDelta >= 0 ? C.success : C.danger,
+              }}
+            >
+              {revCapDelta >= 0 ? "+" : ""}
+              {revCapDelta}% relative change
+            </div>
+          </div>
+        </Card>
+      </div>
 
       <div
         style={{
@@ -2211,6 +2339,47 @@ function WorkMix({ bp, weekMixData, curByMkt }) {
                     />
                   ))}
               </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+
+        <Card
+          title="Current Week vs 12W Avg — Non-Revenue % by Market"
+          style={{ gridColumn: "1/-1" }}
+        >
+          <ResponsiveContainer width="100%" height={isMobile ? 220 : 260}>
+            <BarChart
+              data={workMixCompare}
+              margin={{ top: 16, right: 4, left: -10, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+              <XAxis
+                dataKey="market"
+                tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+                unit="%"
+              />
+              <Tooltip content={<TT showDelta={true} />} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Bar
+                dataKey="nonRevPct"
+                fill={C.danger}
+                radius={[3, 3, 0, 0]}
+                name={`Non-Rev% (${String(CUR_WK).slice(5)})`}
+                label={<DeltaLabel data={workMixCompare} pwKey="nonRevPct_base" />}
+              />
+              <Bar
+                dataKey="nonRevPct_base"
+                fill={C.subtle}
+                radius={[3, 3, 0, 0]}
+                name="Non-Rev% (12W Avg)"
+              />
             </BarChart>
           </ResponsiveContainer>
         </Card>
