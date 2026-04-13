@@ -921,21 +921,59 @@ export default function App() {
 
     const capacityTableData = MARKETS.map((market) => {
       const cur = curByMkt.find((m) => m.market === market) || {};
-      const prev = prevByMkt.find((m) => m.market === market) || {};
-      const trailing = utilTrendByMarket.find((m) => m.market === market);
+
+      const weekly = demandBaselineWeeks.map((wk) => {
+        const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
+        return derive(aggWeek(rows));
+      });
+
+      const avg = (key) =>
+        weekly.length
+          ? weekly.reduce((sum, w) => sum + num(w[key]), 0) / weekly.length
+          : 0;
+
+      const util12w = avg("utilization");
+      const slots12w = avg("slots");
+      const techs12w = avg("techs");
+      const avail12w = avg("slotAvailPct");
+      const jobsPerTech12w = avg("jobsPerTech");
+      const jobs12w = avg("completed_jobs");
+
+      const variancePct =
+        util12w > 0
+          ? +((((cur.utilization || 0) - util12w) / util12w) * 100).toFixed(1)
+          : 0;
+
+      const direction =
+        util12w > 0
+          ? (cur.utilization || 0) >= util12w
+            ? "Above"
+            : "Below"
+          : "Flat";
 
       return {
         market,
+
         slots: cur.slots || 0,
+        slots_12w: slots12w,
+
         techs: cur.techs || 0,
+        techs_12w: techs12w,
+
         util: cur.utilization || 0,
-        util_pw: prev.utilization || 0,
+        util_12w: util12w,
+
         slotAvailPct: cur.slotAvailPct || 0,
+        slotAvailPct_12w: avail12w,
+
         jobsPerTech: cur.jobsPerTech || 0,
+        jobsPerTech_12w: jobsPerTech12w,
+
         completed_jobs: cur.completed_jobs || 0,
-        trailingAvg: trailing?.trailingAvg || 0,
-        variancePct: trailing?.variancePct || 0,
-        direction: trailing?.direction || "Flat",
+        completed_jobs_12w: jobs12w,
+
+        variancePct,
+        direction,
       };
     });
 
@@ -1298,6 +1336,7 @@ export default function App() {
             weeklyMarketHeatmap={derived.weeklyMarketHeatmap}
             weeklyDowHeatmap={derived.weeklyDowHeatmap}
             markets={derived.markets}
+            scorecardBaselineMeta={derived.scorecardBaselineMeta}
           />
         )}
 
@@ -1595,6 +1634,7 @@ function CapacityReview({
   weeklyMarketHeatmap,
   weeklyDowHeatmap,
   markets,
+  scorecardBaselineMeta,
 }) {
   const [heatmapScope, setHeatmapScope] = useState("All Markets");
   const isMobile = bp === "mobile";
@@ -1617,7 +1657,14 @@ function CapacityReview({
 
   return (
     <div>
-      <SectionHeader title="Capacity Review" sub={`${CUR_WK} vs ${PREV_WK}`} />
+      <SectionHeader
+        title="Capacity Review"
+        sub={
+          scorecardBaselineMeta.weeksUsed > 0
+            ? `${CUR_WK} vs last ${scorecardBaselineMeta.weeksUsed}-week average (${scorecardBaselineMeta.startWeek} to ${scorecardBaselineMeta.endWeek})`
+            : `${CUR_WK} vs baseline unavailable`
+        }
+      />
 
       <div
         style={{
@@ -1626,7 +1673,7 @@ function CapacityReview({
           gap: 14,
         }}
       >
-        <Card title="Capacity Table" style={{ gridColumn: "1/-1" }}>
+        <Card title="Capacity Table — Current Week vs 12-Week Average" style={{ gridColumn: "1/-1" }}>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
@@ -1634,15 +1681,19 @@ function CapacityReview({
                   {[
                     "Market",
                     "Slots",
+                    "12W Avg Slots",
                     "Techs",
+                    "12W Avg Techs",
                     "Util%",
-                    "Prior",
-                    "3M Avg",
-                    "Δ vs 3M",
+                    "12W Avg Util%",
+                    "Δ vs 12W",
                     "Direction",
                     "Avail%",
+                    "12W Avg Avail%",
                     "Jobs/Tech",
+                    "12W Avg Jobs/Tech",
                     "Jobs",
+                    "12W Avg Jobs",
                   ].map((h) => (
                     <th
                       key={h}
@@ -1676,17 +1727,28 @@ function CapacityReview({
                     <td style={{ padding: "11px 12px", fontWeight: 700, color: C.primary }}>
                       {r.market}
                     </td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.slots}</td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.techs}</td>
+
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {Math.round(r.slots)}
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {Math.round(r.slots_12w)}
+                    </td>
+
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {Math.round(r.techs)}
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {Math.round(r.techs_12w)}
+                    </td>
+
                     <td style={{ padding: "11px 12px", color: C.secondary }}>
                       {r.util.toFixed(1)}%
                     </td>
                     <td style={{ padding: "11px 12px", color: C.secondary }}>
-                      {r.util_pw.toFixed(1)}%
+                      {r.util_12w.toFixed(1)}%
                     </td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>
-                      {r.trailingAvg.toFixed(1)}%
-                    </td>
+
                     <td
                       style={{
                         padding: "11px 12px",
@@ -1697,6 +1759,7 @@ function CapacityReview({
                       {r.variancePct >= 0 ? "+" : ""}
                       {r.variancePct.toFixed(1)}%
                     </td>
+
                     <td style={{ padding: "11px 12px" }}>
                       <span
                         style={{
@@ -1721,14 +1784,26 @@ function CapacityReview({
                         {r.direction}
                       </span>
                     </td>
+
                     <td style={{ padding: "11px 12px", color: C.secondary }}>
                       {r.slotAvailPct.toFixed(1)}%
                     </td>
                     <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.slotAvailPct_12w.toFixed(1)}%
+                    </td>
+
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
                       {r.jobsPerTech.toFixed(1)}
                     </td>
                     <td style={{ padding: "11px 12px", color: C.secondary }}>
-                      {r.completed_jobs}
+                      {r.jobsPerTech_12w.toFixed(1)}
+                    </td>
+
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {Math.round(r.completed_jobs)}
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {Math.round(r.completed_jobs_12w)}
                     </td>
                   </tr>
                 ))}
@@ -1737,7 +1812,7 @@ function CapacityReview({
           </div>
         </Card>
 
-        <Card title="Slots & Techs by Day — Week in Review vs Prior Week">
+        <Card title="Slots & Techs by Day — Week in Review vs 12-Week Average">
           <ResponsiveContainer width="100%" height={chartH}>
             <ComposedChart
               data={curByDow}
@@ -1779,7 +1854,7 @@ function CapacityReview({
                 dataKey="slots_base"
                 fill={`${C.info}55`}
                 radius={[3, 3, 0, 0]}
-                name={`Slots (12W Avg)`}
+                name="Slots (12W Avg)"
               />
 
               <Line
@@ -1799,7 +1874,7 @@ function CapacityReview({
                 strokeWidth={2}
                 strokeDasharray="4 3"
                 dot={{ r: 3, fill: C.warning, strokeWidth: 0 }}
-                name={`Techs (12W Avg)`}
+                name="Techs (12W Avg)"
               />
             </ComposedChart>
           </ResponsiveContainer>
@@ -1839,18 +1914,10 @@ function CapacityReview({
                 name={`Util% (${String(CUR_WK).slice(5)})`}
               />
               <Bar
-                dataKey="util_pw"
+                dataKey="util_12w"
                 radius={[0, 3, 3, 0]}
                 fill={`${C.subtle}99`}
-                name={`Util% (${String(PREV_WK).slice(5)})`}
-              />
-              <Line
-                type="monotone"
-                dataKey="trailingAvg"
-                stroke={C.danger}
-                strokeWidth={2}
-                dot={{ r: 3, fill: C.danger, strokeWidth: 0 }}
-                name="Trailing 3M Avg"
+                name="Util% (12W Avg)"
               />
             </ComposedChart>
           </ResponsiveContainer>
