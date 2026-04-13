@@ -220,6 +220,56 @@ const buildScorecardBaseline = (allWeeks, baselineWeeks) => {
   };
 };
 
+const buildDemandBaseline = (allWeeks, baselineWeeks, markets) => {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  const byDow = days.map((dow) => {
+    const weekly = baselineWeeks.map((wk) => {
+      const rows = (allWeeks[wk] || []).filter((r) => str(r.dow) === dow);
+      return derive(aggWeek(rows));
+    });
+
+    const avg = (key) =>
+      weekly.length
+        ? weekly.reduce((sum, w) => sum + num(w[key]), 0) / weekly.length
+        : 0;
+
+    return {
+      day: dow,
+      leads_base: avg("leads"),
+      bookRate_base: avg("bookingRate"),
+      conv_base: avg("convRate"),
+      lsr_base: avg("lsr"),
+      slots_base: avg("slots"),
+      techs_base: avg("techs"),
+      util_base: avg("utilization"),
+      avail_base: avg("slotAvailPct"),
+    };
+  });
+
+  const byMarket = markets.map((market) => {
+    const weekly = baselineWeeks.map((wk) => {
+      const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
+      return derive(aggWeek(rows));
+    });
+
+    const avg = (key) =>
+      weekly.length
+        ? weekly.reduce((sum, w) => sum + num(w[key]), 0) / weekly.length
+        : 0;
+
+    return {
+      market,
+      leads_base: avg("leads"),
+      bookRate_base: avg("bookingRate"),
+      conv_base: avg("convRate"),
+      lsr_base: avg("lsr"),
+    };
+  });
+
+  return { byDow, byMarket };
+};
+
 const buildBaselines = (allWeeks, pastWeeks, markets) => {
   const baselineWeekKeys = pastWeeks.slice(-(BASELINE_WEEKS + 1), -1);
 
@@ -362,8 +412,15 @@ const SectionHeader = ({ title, sub }) => (
 const TT = ({ active, payload, label, showDelta = false }) => {
   if (!active || !payload?.length) return null;
 
-  const cur = payload.find((p) => !String(p.dataKey).endsWith("_pw"));
-  const prev = payload.find((p) => String(p.dataKey).endsWith("_pw"));
+  const cur = payload.find(
+    (p) =>
+      !String(p.dataKey).endsWith("_pw") && !String(p.dataKey).endsWith("_base")
+  );
+  const prev = payload.find(
+    (p) =>
+      String(p.dataKey).endsWith("_pw") || String(p.dataKey).endsWith("_base")
+  );
+
   const delta =
     cur && prev && prev.value !== 0
       ? +(((cur.value - prev.value) / prev.value) * 100).toFixed(1)
@@ -403,7 +460,7 @@ const TT = ({ active, payload, label, showDelta = false }) => {
             fontWeight: 700,
           }}
         >
-          WoW: {absDelta >= 0 ? "+" : ""}
+          Δ: {absDelta >= 0 ? "+" : ""}
           {absDelta} ({delta >= 0 ? "+" : ""}
           {delta}%)
         </p>
@@ -413,12 +470,12 @@ const TT = ({ active, payload, label, showDelta = false }) => {
 };
 
 const DeltaLabel = ({ x, y, width, value, index, data, pwKey }) => {
-  if (!data || value === undefined || value === null) return null;
+  if (!data) return null;
 
   const row =
     typeof index === "number" && data[index] ? data[index] : null;
 
-  if (!row) return null;
+  if (!row || value == null) return null;
 
   const prev = row[pwKey];
   if (prev == null || prev === 0) return null;
@@ -684,9 +741,8 @@ export default function App() {
     const PREV = derive(aggWeek(prevRows));
 
     const scorecardBaselineWeeks = weekKeys.filter((k) => k < CUR_WK).slice(-12);
-const BASE = buildScorecardBaseline(allWeeks, scorecardBaselineWeeks);
+    const BASE = buildScorecardBaseline(allWeeks, scorecardBaselineWeeks);
 
-    
     const scorecardBaselineMeta = {
       weeksUsed: scorecardBaselineWeeks.length,
       startWeek: scorecardBaselineWeeks[0] || "",
@@ -694,6 +750,9 @@ const BASE = buildScorecardBaseline(allWeeks, scorecardBaselineWeeks);
     };
 
     const MARKETS = [...new Set(RAW.map((r) => str(r.market)).filter(Boolean))].sort();
+
+    const demandBaselineWeeks = weekKeys.filter((k) => k < CUR_WK).slice(-12);
+    const demandBaseline = buildDemandBaseline(allWeeks, demandBaselineWeeks, MARKETS);
 
     const curByMkt = MARKETS.map((m) => ({
       market: m,
@@ -707,46 +766,45 @@ const BASE = buildScorecardBaseline(allWeeks, scorecardBaselineWeeks);
 
     const mktCompare = MARKETS.map((m) => {
       const c = curByMkt.find((r) => r.market === m);
-      const p = prevByMkt.find((r) => r.market === m);
+      const b = demandBaseline.byMarket.find((r) => r.market === m) || {};
 
       return {
         market: m,
         leads: c?.leads || 0,
-        leads_pw: p?.leads || 0,
+        leads_base: b.leads_base || 0,
         bookRate: c?.bookingRate || 0,
-        bookRate_pw: p?.bookingRate || 0,
+        bookRate_base: b.bookRate_base || 0,
         conv: c?.convRate || 0,
-        conv_pw: p?.convRate || 0,
+        conv_base: b.conv_base || 0,
         lsr: c?.lsr || 0,
-        lsr_pw: p?.lsr || 0,
+        lsr_base: b.lsr_base || 0,
       };
     });
 
     const curByDow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
       (dow) => {
         const cR = curRows.filter((r) => str(r.dow) === dow);
-        const pR = prevRows.filter((r) => str(r.dow) === dow);
         const c = cR.length ? derive(aggWeek(cR)) : null;
-        const p = pR.length ? derive(aggWeek(pR)) : null;
+        const b = demandBaseline.byDow.find((r) => r.day === dow) || {};
 
         return {
           day: dow,
           leads: c?.leads || 0,
-          leads_pw: p?.leads || 0,
+          leads_base: b.leads_base || 0,
           bookRate: c?.bookingRate || 0,
-          bookRate_pw: p?.bookingRate || 0,
+          bookRate_base: b.bookRate_base || 0,
           conv: c?.convRate || 0,
-          conv_pw: p?.convRate || 0,
+          conv_base: b.conv_base || 0,
           lsr: c?.lsr || 0,
-          lsr_pw: p?.lsr || 0,
+          lsr_base: b.lsr_base || 0,
           slots: c?.slots || 0,
-          slots_pw: p?.slots || 0,
+          slots_base: b.slots_base || 0,
           techs: c?.techs || 0,
-          techs_pw: p?.techs || 0,
+          techs_base: b.techs_base || 0,
           util: c?.utilization || 0,
-          util_pw: p?.utilization || 0,
+          util_base: b.util_base || 0,
           avail: c?.slotAvailPct || 0,
-          avail_pw: p?.slotAvailPct || 0,
+          avail_base: b.avail_base || 0,
         };
       }
     );
@@ -1223,10 +1281,10 @@ const BASE = buildScorecardBaseline(allWeeks, scorecardBaselineWeeks);
           <DemandReview
             bp={bp}
             CUR_WK={derived.CUR_WK}
-            PREV_WK={derived.PREV_WK}
             curByDow={derived.curByDow}
             weekTrendData={derived.weekTrendData}
             mktCompare={derived.mktCompare}
+            scorecardBaselineMeta={derived.scorecardBaselineMeta}
           />
         )}
 
@@ -1340,10 +1398,10 @@ function Scorecard({ bp, CUR, BASE, weekTrendData, CUR_WK, scorecardBaselineMeta
 function DemandReview({
   bp,
   CUR_WK,
-  PREV_WK,
   curByDow,
   weekTrendData,
   mktCompare,
+  scorecardBaselineMeta,
 }) {
   const [metric, setMetric] = useState("leads");
   const isMobile = bp === "mobile";
@@ -1357,16 +1415,23 @@ function DemandReview({
     lsr: "LSR",
   };
 
-  const metricPwMap = {
-    leads: "leads_pw",
-    bookRate: "bookRate_pw",
-    conv: "conv_pw",
-    lsr: "lsr_pw",
+  const metricBaseMap = {
+    leads: "leads_base",
+    bookRate: "bookRate_base",
+    conv: "conv_base",
+    lsr: "lsr_base",
   };
 
   return (
     <div>
-      <SectionHeader title="Demand Review" sub={`${CUR_WK} vs ${PREV_WK}`} />
+      <SectionHeader
+        title="Demand Review"
+        sub={
+          scorecardBaselineMeta.weeksUsed > 0
+            ? `${CUR_WK} vs last ${scorecardBaselineMeta.weeksUsed}-week average (${scorecardBaselineMeta.startWeek} to ${scorecardBaselineMeta.endWeek})`
+            : `${CUR_WK} vs baseline unavailable`
+        }
+      />
 
       <div
         style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}
@@ -1398,7 +1463,7 @@ function DemandReview({
           gap: 14,
         }}
       >
-        <Card title="Week in Review vs Prior Week by Day">
+        <Card title="Week in Review vs 12-Week Average by Day">
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart
               data={curByDow}
@@ -1426,16 +1491,15 @@ function DemandReview({
                 label={
                   <DeltaLabel
                     data={curByDow}
-                    value={undefined}
-                    pwKey={metricPwMap[metric]}
+                    pwKey={metricBaseMap[metric]}
                   />
                 }
               />
               <Bar
-                dataKey={metricPwMap[metric]}
+                dataKey={metricBaseMap[metric]}
                 fill={C.subtle}
                 radius={[3, 3, 0, 0]}
-                name={`${metricMap[metric]} (${String(PREV_WK).slice(5)})`}
+                name={`${metricMap[metric]} (12W Avg)`}
               />
             </BarChart>
           </ResponsiveContainer>
@@ -1473,7 +1537,7 @@ function DemandReview({
         </Card>
 
         <Card
-          title={`By Market — ${CUR_WK} vs ${PREV_WK}`}
+          title={`By Market — ${CUR_WK} vs 12-Week Average`}
           style={{ gridColumn: "1/-1" }}
         >
           <ResponsiveContainer width="100%" height={isMobile ? 200 : 220}>
@@ -1503,16 +1567,15 @@ function DemandReview({
                 label={
                   <DeltaLabel
                     data={mktCompare}
-                    value={undefined}
-                    pwKey={`${metric}_pw`}
+                    pwKey={`${metric}_base`}
                   />
                 }
               />
               <Bar
-                dataKey={`${metric}_pw`}
+                dataKey={`${metric}_base`}
                 fill={C.subtle}
                 radius={[3, 3, 0, 0]}
-                name={`${metricMap[metric]} (${String(PREV_WK).slice(5)})`}
+                name={`${metricMap[metric]} (12W Avg)`}
               />
             </BarChart>
           </ResponsiveContainer>
@@ -1709,14 +1772,14 @@ function CapacityReview({
                 fill={C.info}
                 radius={[3, 3, 0, 0]}
                 name={`Slots (${String(CUR_WK).slice(5)})`}
-                label={<DeltaLabel data={curByDow} value={undefined} pwKey="slots_pw" />}
+                label={<DeltaLabel data={curByDow} pwKey="slots_base" />}
               />
               <Bar
                 yAxisId="l"
-                dataKey="slots_pw"
+                dataKey="slots_base"
                 fill={`${C.info}55`}
                 radius={[3, 3, 0, 0]}
-                name={`Slots (${String(PREV_WK).slice(5)})`}
+                name={`Slots (12W Avg)`}
               />
 
               <Line
@@ -1731,12 +1794,12 @@ function CapacityReview({
               <Line
                 yAxisId="r"
                 type="monotone"
-                dataKey="techs_pw"
+                dataKey="techs_base"
                 stroke={C.warning}
                 strokeWidth={2}
                 strokeDasharray="4 3"
                 dot={{ r: 3, fill: C.warning, strokeWidth: 0 }}
-                name={`Techs (${String(PREV_WK).slice(5)})`}
+                name={`Techs (12W Avg)`}
               />
             </ComposedChart>
           </ResponsiveContainer>
