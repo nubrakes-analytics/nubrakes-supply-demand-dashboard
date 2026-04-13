@@ -117,6 +117,7 @@ const aggWeek = (rows) => {
     leads: 0,
     booked_jobs: 0,
     completed_jobs: 0,
+    completed_job_0_rev: 0,
     warranty_checks: 0,
     diagnostics: 0,
     service_calls: 0,
@@ -132,6 +133,7 @@ const aggWeek = (rows) => {
     r.leads += num(d.leads);
     r.booked_jobs += num(d.booked_jobs);
     r.completed_jobs += num(d.completed_jobs);
+    r.completed_job_0_rev += num(d.completed_job_0_rev);
     r.warranty_checks += num(d.warranty_checks);
     r.diagnostics += num(d.diagnostics);
     r.service_calls += num(d.service_calls);
@@ -200,6 +202,7 @@ const buildScorecardBaseline = (allWeeks, baselineWeeks) => {
     leads: avg("leads"),
     booked_jobs: avg("booked_jobs"),
     completed_jobs: avg("completed_jobs"),
+    completed_job_0_rev: avg("completed_job_0_rev"),
     warranty_checks: avg("warranty_checks"),
     diagnostics: avg("diagnostics"),
     service_calls: avg("service_calls"),
@@ -285,6 +288,7 @@ const buildWorkMixBaseline = (allWeeks, baselineWeeks, markets) => {
     return {
       market,
       completed_base: avg("completed_jobs"),
+      completed0Rev_base: avg("completed_job_0_rev"),
       warranty_base: avg("warranty_checks"),
       diagnostic_base: avg("diagnostics"),
       serviceCall_base: avg("service_calls"),
@@ -306,6 +310,7 @@ const buildWorkMixBaseline = (allWeeks, baselineWeeks, markets) => {
     byMarket,
     overall: {
       completed_base: avgOverall("completed_jobs"),
+      completed0Rev_base: avgOverall("completed_job_0_rev"),
       warranty_base: avgOverall("warranty_checks"),
       diagnostic_base: avgOverall("diagnostics"),
       serviceCall_base: avgOverall("service_calls"),
@@ -748,10 +753,10 @@ export default function App() {
         weekMixData: [],
         workMixCompare: [],
         workMixSignal: {
-          nonRevPct: 0,
-          nonRevPct_base: 0,
-          revCapMix: 0,
-          revCapMix_base: 0,
+          completed: 0,
+          completed_base: 0,
+          completed0Rev: 0,
+          completed0Rev_base: 0,
         },
         utilByMktCompare: [],
         actionTableData: [],
@@ -901,6 +906,7 @@ export default function App() {
         return {
           week: k.slice(5),
           completed: a.completed_jobs,
+          completed0Rev: a.completed_job_0_rev,
           warranty: a.warranty_checks,
           diagnostic: a.diagnostics,
           serviceCall: a.service_calls,
@@ -913,9 +919,11 @@ export default function App() {
 
       return {
         market,
-
         completed: cur.completed_jobs || 0,
         completed_base: base.completed_base || 0,
+
+        completed0Rev: cur.completed_job_0_rev || 0,
+        completed0Rev_base: base.completed0Rev_base || 0,
 
         warranty: cur.warranty_checks || 0,
         warranty_base: base.warranty_base || 0,
@@ -935,10 +943,10 @@ export default function App() {
     });
 
     const workMixSignal = {
-      nonRevPct: CUR.nonRevPct,
-      nonRevPct_base: workMixBaseline.overall.nonRevPct_base || 0,
-      revCapMix: CUR.revCapMix,
-      revCapMix_base: workMixBaseline.overall.revCapMix_base || 0,
+      completed: CUR.completed_jobs || 0,
+      completed_base: workMixBaseline.overall.completed_base || 0,
+      completed0Rev: CUR.completed_job_0_rev || 0,
+      completed0Rev_base: workMixBaseline.overall.completed0Rev_base || 0,
     };
 
     const utilByMktCompare = curByMkt
@@ -2170,23 +2178,36 @@ function WorkMix({
   const isMobile = bp === "mobile";
   const cols = isMobile ? 1 : 2;
 
-  const nonRevDelta =
-    workMixSignal.nonRevPct_base > 0
+  const completedDelta =
+    workMixSignal.completed_base > 0
       ? +(
-          ((workMixSignal.nonRevPct - workMixSignal.nonRevPct_base) /
-            workMixSignal.nonRevPct_base) *
+          ((workMixSignal.completed - workMixSignal.completed_base) /
+            workMixSignal.completed_base) *
           100
         ).toFixed(1)
       : 0;
 
-  const revCapDelta =
-    workMixSignal.revCapMix_base > 0
+  const completed0RevDelta =
+    workMixSignal.completed0Rev_base > 0
       ? +(
-          ((workMixSignal.revCapMix - workMixSignal.revCapMix_base) /
-            workMixSignal.revCapMix_base) *
+          ((workMixSignal.completed0Rev - workMixSignal.completed0Rev_base) /
+            workMixSignal.completed0Rev_base) *
           100
         ).toFixed(1)
       : 0;
+
+  const selectedWeekCompare = [
+    {
+      metric: "Revenue Capacity Mix (Completed Job)",
+      current: workMixSignal.completed,
+      baseline: workMixSignal.completed_base,
+    },
+    {
+      metric: "Non-Revenue Mix (Completed Job 0 Rev)",
+      current: workMixSignal.completed0Rev,
+      baseline: workMixSignal.completed0Rev_base,
+    },
+  ];
 
   return (
     <div>
@@ -2202,64 +2223,13 @@ function WorkMix({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: isMobile ? "1fr" : "repeat(2, 1fr)",
-          gap: 10,
-          marginBottom: 14,
-        }}
-      >
-        <Card title="Signal — Non-Revenue Mix">
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: C.primary }}>
-              {workMixSignal.nonRevPct.toFixed(1)}%
-            </div>
-            <div style={{ fontSize: 12, color: C.muted }}>
-              vs 12W avg {workMixSignal.nonRevPct_base.toFixed(1)}%
-            </div>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 700,
-                color: nonRevDelta >= 0 ? C.danger : C.success,
-              }}
-            >
-              {nonRevDelta >= 0 ? "+" : ""}
-              {nonRevDelta}% relative change
-            </div>
-          </div>
-        </Card>
-
-        <Card title="Signal — Revenue Capacity Mix">
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: C.primary }}>
-              {workMixSignal.revCapMix.toFixed(1)}%
-            </div>
-            <div style={{ fontSize: 12, color: C.muted }}>
-              vs 12W avg {workMixSignal.revCapMix_base.toFixed(1)}%
-            </div>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 700,
-                color: revCapDelta >= 0 ? C.success : C.danger,
-              }}
-            >
-              {revCapDelta >= 0 ? "+" : ""}
-              {revCapDelta}% relative change
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
           gridTemplateColumns: `repeat(${cols},1fr)`,
           gap: 14,
         }}
       >
         <Card title="Activity Mix by Week">
           <ResponsiveContainer width="100%" height={isMobile ? 180 : 220}>
-            <BarChart
+            <LineChart
               data={weekMixData}
               margin={{ top: 4, right: 4, left: -10, bottom: 0 }}
             >
@@ -2277,22 +2247,39 @@ function WorkMix({
               />
               <Tooltip content={<TT />} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="completed" stackId="a" fill={C.success} name="Completed" />
-              <Bar dataKey="warranty" stackId="a" fill={C.warning} name="Warranty" />
-              <Bar
+              <Line
+                type="monotone"
+                dataKey="completed"
+                stroke={C.success}
+                strokeWidth={2}
+                dot={{ r: 3, fill: C.success, strokeWidth: 0 }}
+                name="Completed"
+              />
+              <Line
+                type="monotone"
+                dataKey="warranty"
+                stroke={C.warning}
+                strokeWidth={2}
+                dot={{ r: 3, fill: C.warning, strokeWidth: 0 }}
+                name="Warranty"
+              />
+              <Line
+                type="monotone"
                 dataKey="diagnostic"
-                stackId="a"
-                fill={C.info}
+                stroke={C.info}
+                strokeWidth={2}
+                dot={{ r: 3, fill: C.info, strokeWidth: 0 }}
                 name="Diagnostic"
               />
-              <Bar
+              <Line
+                type="monotone"
                 dataKey="serviceCall"
-                stackId="a"
-                fill={C.danger}
+                stroke={C.danger}
+                strokeWidth={2}
+                dot={{ r: 3, fill: C.danger, strokeWidth: 0 }}
                 name="Service Call"
-                radius={[3, 3, 0, 0]}
               />
-            </BarChart>
+            </LineChart>
           </ResponsiveContainer>
         </Card>
 
@@ -2344,6 +2331,159 @@ function WorkMix({
         </Card>
 
         <Card
+          title="Revenue Capacity Mix vs Non-Revenue Mix by Week"
+          style={{ gridColumn: "1/-1" }}
+        >
+          <ResponsiveContainer width="100%" height={isMobile ? 220 : 260}>
+            <LineChart
+              data={weekMixData}
+              margin={{ top: 8, right: 12, left: -10, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+              <XAxis
+                dataKey="week"
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip content={<TT />} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Line
+                type="monotone"
+                dataKey="completed"
+                stroke={C.success}
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: C.success, strokeWidth: 0 }}
+                name="Revenue Capacity Mix (Completed Job)"
+              />
+              <Line
+                type="monotone"
+                dataKey="completed0Rev"
+                stroke={C.purple}
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: C.purple, strokeWidth: 0 }}
+                name="Non-Revenue Mix (Completed Job 0 Rev)"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </Card>
+
+        <Card
+          title={`Selected Week vs 12W Avg — ${CUR_WK}`}
+          style={{ gridColumn: "1/-1" }}
+        >
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+              marginBottom: 12,
+            }}
+          >
+            <div
+              style={{
+                background: C.panel,
+                border: `1px solid ${C.border}`,
+                borderRadius: 8,
+                padding: "10px 12px",
+                minWidth: 220,
+              }}
+            >
+              <div style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>
+                Revenue Capacity Mix
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: C.primary }}>
+                {Math.round(workMixSignal.completed)}
+              </div>
+              <div style={{ fontSize: 12, color: C.muted }}>
+                vs 12W avg {workMixSignal.completed_base.toFixed(1)}
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: completedDelta >= 0 ? C.success : C.danger,
+                  marginTop: 4,
+                }}
+              >
+                {completedDelta >= 0 ? "+" : ""}
+                {completedDelta}% relative change
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: C.panel,
+                border: `1px solid ${C.border}`,
+                borderRadius: 8,
+                padding: "10px 12px",
+                minWidth: 220,
+              }}
+            >
+              <div style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>
+                Non-Revenue Mix
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: C.primary }}>
+                {Math.round(workMixSignal.completed0Rev)}
+              </div>
+              <div style={{ fontSize: 12, color: C.muted }}>
+                vs 12W avg {workMixSignal.completed0Rev_base.toFixed(1)}
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: completed0RevDelta >= 0 ? C.danger : C.success,
+                  marginTop: 4,
+                }}
+              >
+                {completed0RevDelta >= 0 ? "+" : ""}
+                {completed0RevDelta}% relative change
+              </div>
+            </div>
+          </div>
+
+          <ResponsiveContainer width="100%" height={isMobile ? 220 : 260}>
+            <BarChart
+              data={selectedWeekCompare}
+              margin={{ top: 16, right: 4, left: 0, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+              <XAxis
+                dataKey="metric"
+                tick={{ fill: C.muted, fontSize: isMobile ? 9 : 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip content={<TT showDelta={true} />} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Bar
+                dataKey="current"
+                fill={C.info}
+                radius={[3, 3, 0, 0]}
+                name={`${String(CUR_WK).slice(5)}`}
+              />
+              <Bar
+                dataKey="baseline"
+                fill={C.subtle}
+                radius={[3, 3, 0, 0]}
+                name="12W Avg"
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+
+        <Card
           title="Current Week vs 12W Avg — Non-Revenue % by Market"
           style={{ gridColumn: "1/-1" }}
         >
@@ -2379,58 +2519,6 @@ function WorkMix({
                 fill={C.subtle}
                 radius={[3, 3, 0, 0]}
                 name="Non-Rev% (12W Avg)"
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-
-        <Card
-          title="Revenue vs Non-Revenue by Market"
-          style={{ gridColumn: "1/-1" }}
-        >
-          <ResponsiveContainer width="100%" height={isMobile ? 180 : 200}>
-            <BarChart
-              data={curByMkt}
-              margin={{ top: 4, right: 4, left: -10, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis
-                dataKey="market"
-                tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: C.muted, fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip content={<TT />} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar
-                dataKey="completed_jobs"
-                stackId="a"
-                fill={C.success}
-                name="Completed"
-              />
-              <Bar
-                dataKey="warranty_checks"
-                stackId="a"
-                fill={C.warning}
-                name="Warranty"
-              />
-              <Bar
-                dataKey="diagnostics"
-                stackId="a"
-                fill={C.info}
-                name="Diagnostic"
-              />
-              <Bar
-                dataKey="service_calls"
-                stackId="a"
-                fill={C.danger}
-                name="Service Call"
-                radius={[3, 3, 0, 0]}
               />
             </BarChart>
           </ResponsiveContainer>
