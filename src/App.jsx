@@ -827,22 +827,23 @@ export default function App() {
     );
 
     const curByMkt = MARKETS.map((m) => {
-      const marketRows = curRows.filter((r) => str(r.market) === m);
-      const agg = aggWeek(marketRows);
-      const daysCount = countDistinctDays(marketRows);
+  const marketRows = curRows.filter((r) => str(r.market) === m);
+  const agg = aggWeek(marketRows);
+  const daysCount = countDistinctDays(marketRows);
 
-      return {
-  market: m,
-  ...derive(agg),
-  jobsPerDayPerTech:
-  daysCount > 0 && agg.techs > 0
-    ? +(
-        (agg.completed_jobs + agg.completed_job_0_rev) /
-        daysCount /
-        agg.techs
-      ).toFixed(2)
-    : 0,
-};
+  return {
+    market: m,
+    ...derive(agg),
+    jobsPerDayPerTech:
+      daysCount > 0 && agg.techs > 0
+        ? +(
+            (agg.completed_jobs + agg.completed_job_0_rev) /
+            daysCount /
+            agg.techs
+          ).toFixed(2)
+        : 0,
+  };
+});
 
     const prevByMkt = MARKETS.map((m) => ({
       market: m,
