@@ -832,12 +832,17 @@ export default function App() {
       const daysCount = countDistinctDays(marketRows);
 
       return {
-        market: m,
-        ...derive(agg),
-        jobsPerDay:
-          daysCount > 0 ? +(agg.completed_jobs / daysCount).toFixed(1) : 0,
-      };
-    });
+  market: m,
+  ...derive(agg),
+  jobsPerDayPerTech:
+  daysCount > 0 && agg.techs > 0
+    ? +(
+        (agg.completed_jobs + agg.completed_job_0_rev) /
+        daysCount /
+        agg.techs
+      ).toFixed(2)
+    : 0,
+};
 
     const prevByMkt = MARKETS.map((m) => ({
       market: m,
@@ -2400,50 +2405,54 @@ function WorkMix({
           </ResponsiveContainer>
         </Card>
 
-        <Card title="Jobs per Day by Market">
-          <ResponsiveContainer width="100%" height={isMobile ? 180 : 220}>
-            <BarChart
-              data={curByMkt}
-              layout="vertical"
-              margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
-            >
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke={C.border}
-                horizontal={false}
-              />
-              <XAxis
-                type="number"
-                tick={{ fill: C.muted, fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                dataKey="market"
-                type="category"
-                tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
-                axisLine={false}
-                tickLine={false}
-                width={isMobile ? 62 : 72}
-              />
-              <Tooltip content={<TT />} />
-              <Bar dataKey="jobsPerDay" radius={[0, 3, 3, 0]} name="Jobs/Day">
-                {curByMkt.map((r, i) => (
-                  <Cell
-                    key={i}
-                    fill={
-                      r.jobsPerDay >= 4
-                        ? C.success
-                        : r.jobsPerDay >= 2
-                        ? C.warning
-                        : C.danger
-                    }
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
+        <Card title="Jobs per Day per Tech by Market">
+  <ResponsiveContainer width="100%" height={isMobile ? 180 : 220}>
+    <BarChart
+      data={curByMkt}
+      layout="vertical"
+      margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+    >
+      <CartesianGrid
+        strokeDasharray="3 3"
+        stroke={C.border}
+        horizontal={false}
+      />
+      <XAxis
+        type="number"
+        tick={{ fill: C.muted, fontSize: 10 }}
+        axisLine={false}
+        tickLine={false}
+      />
+      <YAxis
+        dataKey="market"
+        type="category"
+        tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
+        axisLine={false}
+        tickLine={false}
+        width={isMobile ? 62 : 72}
+      />
+      <Tooltip content={<TT />} />
+      <Bar
+        dataKey="jobsPerDayPerTech"
+        radius={[0, 3, 3, 0]}
+        name="Jobs/Day/Tech"
+      >
+        {curByMkt.map((r, i) => (
+          <Cell
+            key={i}
+            fill={
+              r.jobsPerDayPerTech >= 1.5
+                ? C.success
+                : r.jobsPerDayPerTech >= 0.8
+                ? C.warning
+                : C.danger
+            }
+          />
+        ))}
+      </Bar>
+    </BarChart>
+  </ResponsiveContainer>
+</Card>
 
         <Card
           title={`Revenue Capacity Mix vs Non-Revenue Mix by Week — ${mixScope}`}
