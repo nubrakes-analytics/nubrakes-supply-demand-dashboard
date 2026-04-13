@@ -1219,7 +1219,7 @@ export default function App() {
           />
         )}
 
-       {{tab === "capacity" && (
+       {tab === "capacity" && (
   <CapacityReview
     bp={bp}
     CUR_WK={derived.CUR_WK}
