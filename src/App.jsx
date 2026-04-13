@@ -852,61 +852,76 @@ export default function App() {
       };
     });
 
-    const capacityTableData = MARKETS.map((market) => {
-      const cur = curByMkt.find((m) => m.market === market) || {};
-      const prev = prevByMkt.find((m) => m.market === market) || {};
-      const trailing = utilTrendByMarket.find((m) => m.market === market);
+   const capacityTableData = MARKETS.map((market) => {
+  const cur = curByMkt.find((m) => m.market === market) || {};
+  const prev = prevByMkt.find((m) => m.market === market) || {};
+  const trailing = utilTrendByMarket.find((m) => m.market === market);
 
-      const last16Weeks = weekKeys.filter((k) => k <= CUR_WK).slice(-16);
+  return {
+    market,
+    slots: cur.slots || 0,
+    techs: cur.techs || 0,
+    util: cur.utilization || 0,
+    util_pw: prev.utilization || 0,
+    slotAvailPct: cur.slotAvailPct || 0,
+    jobsPerTech: cur.jobsPerTech || 0,
+    completed_jobs: cur.completed_jobs || 0,
+    trailingAvg: trailing?.trailingAvg || 0,
+    variancePct: trailing?.variancePct || 0,
+    direction: trailing?.direction || "Flat",
+  };
+});
 
-    const weeklyMarketHeatmap = last16Weeks.map((wk) => {
-      const row = { week: wk.slice(5), fullWeek: wk };
+const last16Weeks = weekKeys.filter((k) => k <= CUR_WK).slice(-16);
 
-      MARKETS.forEach((market) => {
-        const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
-        const a = derive(aggWeek(rows));
-        row[market] = a.utilization;
-      });
+const weeklyMarketHeatmap = last16Weeks.map((wk) => {
+  const row = { week: wk.slice(5), fullWeek: wk };
 
-      return row;
-    });
+  MARKETS.forEach((market) => {
+    const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
+    const a = derive(aggWeek(rows));
+    row[market] = a.utilization;
+  });
 
-    const weeklyDowHeatmap = last16Weeks.map((wk) => {
-      const baseRows = allWeeks[wk] || [];
+  return row;
+});
 
-      const allMarketsRow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
-        (acc, dow) => {
-          const a = derive(aggWeek(baseRows.filter((r) => str(r.dow) === dow)));
-          acc[dow] = a.utilization;
-          return acc;
-        },
-        {}
-      );
+const weeklyDowHeatmap = last16Weeks.map((wk) => {
+  const baseRows = allWeeks[wk] || [];
 
-      const byMarket = MARKETS.reduce((acc, market) => {
-        const marketRows = baseRows.filter((r) => str(r.market) === market);
+  const allMarketsRow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
+    (acc, dow) => {
+      const a = derive(aggWeek(baseRows.filter((r) => str(r.dow) === dow)));
+      acc[dow] = a.utilization;
+      return acc;
+    },
+    {}
+  );
 
-        acc[market] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
-          (dAcc, dow) => {
-            const a = derive(
-              aggWeek(marketRows.filter((r) => str(r.dow) === dow))
-            );
-            dAcc[dow] = a.utilization;
-            return dAcc;
-          },
-          {}
+  const byMarket = MARKETS.reduce((acc, market) => {
+    const marketRows = baseRows.filter((r) => str(r.market) === market);
+
+    acc[market] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
+      (dAcc, dow) => {
+        const a = derive(
+          aggWeek(marketRows.filter((r) => str(r.dow) === dow))
         );
+        dAcc[dow] = a.utilization;
+        return dAcc;
+      },
+      {}
+    );
 
-        return acc;
-      }, {});
+    return acc;
+  }, {});
 
-      return {
-        week: wk.slice(5),
-        fullWeek: wk,
-        allMarkets: allMarketsRow,
-        byMarket,
-      };
-    });
+  return {
+    week: wk.slice(5),
+    fullWeek: wk,
+    allMarkets: allMarketsRow,
+    byMarket,
+  };
+});
 
       return {
         market,
@@ -1720,52 +1735,55 @@ function CapacityReview({
         </Card>
 
         <Card title="Utilization by Market — Current vs Prior + 3M Avg">
-          <ResponsiveContainer width="100%" height={chartH}>
-            <ComposedChart
-              data={capacityTableData}
-              margin={{ top: 12, right: 12, left: -10, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis
-                dataKey="market"
-                tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                domain={[0, 100]}
-                tick={{ fill: C.muted, fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-                unit="%"
-              />
-              <Tooltip content={<TT showDelta={true} />} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
+  <ResponsiveContainer width="100%" height={isMobile ? 260 : 320}>
+    <ComposedChart
+      data={capacityTableData}
+      layout="vertical"
+      margin={{ top: 12, right: 24, left: 8, bottom: 0 }}
+    >
+      <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false} />
+      <XAxis
+        type="number"
+        domain={[0, 100]}
+        tick={{ fill: C.muted, fontSize: 10 }}
+        axisLine={false}
+        tickLine={false}
+        unit="%"
+      />
+      <YAxis
+        dataKey="market"
+        type="category"
+        tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
+        axisLine={false}
+        tickLine={false}
+        width={isMobile ? 70 : 90}
+      />
+      <Tooltip content={<TT showDelta={true} />} />
+      <Legend wrapperStyle={{ fontSize: 10 }} />
 
-              <Bar
-                dataKey="util"
-                radius={[3, 3, 0, 0]}
-                fill={C.info}
-                name={`Util% (${String(CUR_WK).slice(5)})`}
-                label={<DeltaLabel data={capacityTableData} value={undefined} pwKey="util_pw" />}
-              />
-              <Bar
-                dataKey="util_pw"
-                radius={[3, 3, 0, 0]}
-                fill={`${C.subtle}99`}
-                name={`Util% (${String(PREV_WK).slice(5)})`}
-              />
-              <Line
-                type="monotone"
-                dataKey="trailingAvg"
-                stroke={C.danger}
-                strokeWidth={2}
-                dot={{ r: 3, fill: C.danger, strokeWidth: 0 }}
-                name="Trailing 3M Avg"
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </Card>
+      <Bar
+        dataKey="util"
+        radius={[0, 3, 3, 0]}
+        fill={C.info}
+        name={`Util% (${String(CUR_WK).slice(5)})`}
+      />
+      <Bar
+        dataKey="util_pw"
+        radius={[0, 3, 3, 0]}
+        fill={`${C.subtle}99`}
+        name={`Util% (${String(PREV_WK).slice(5)})`}
+      />
+      <Line
+        type="monotone"
+        dataKey="trailingAvg"
+        stroke={C.danger}
+        strokeWidth={2}
+        dot={{ r: 3, fill: C.danger, strokeWidth: 0 }}
+        name="Trailing 3M Avg"
+      />
+    </ComposedChart>
+  </ResponsiveContainer>
+</Card>
 
         <Card title="Utilization Heatmap by Market — Last 16 Weeks" style={{ gridColumn: "1/-1" }}>
           <div style={{ overflowX: "auto" }}>
