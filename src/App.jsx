@@ -1494,6 +1494,113 @@ function CapacityReview({
           gap: 14,
         }}
       >
+        <Card title="Capacity Table" style={{ gridColumn: "1/-1" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {[
+                    "Market",
+                    "Slots",
+                    "Techs",
+                    "Util%",
+                    "Prior",
+                    "3M Avg",
+                    "Δ vs 3M",
+                    "Direction",
+                    "Avail%",
+                    "Jobs/Tech",
+                    "Jobs",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "10px 12px",
+                        textAlign: "left",
+                        color: C.muted,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: ".06em",
+                        background: C.panel,
+                        borderBottom: `1px solid ${C.border}`,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {capacityTableData.map((r, i) => (
+                  <tr
+                    key={r.market}
+                    style={{
+                      background: i % 2 === 0 ? C.surface : C.panel,
+                      borderBottom: `1px solid ${C.border}`,
+                    }}
+                  >
+                    <td style={{ padding: "11px 12px", fontWeight: 700, color: C.primary }}>
+                      {r.market}
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.slots}</td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.techs}</td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.util.toFixed(1)}%</td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.util_pw.toFixed(1)}%</td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.trailingAvg.toFixed(1)}%
+                    </td>
+                    <td
+                      style={{
+                        padding: "11px 12px",
+                        color: r.variancePct >= 0 ? C.success : C.danger,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {r.variancePct >= 0 ? "+" : ""}
+                      {r.variancePct.toFixed(1)}%
+                    </td>
+                    <td style={{ padding: "11px 12px" }}>
+                      <span
+                        style={{
+                          background:
+                            r.direction === "Above"
+                              ? "#d1fae5"
+                              : r.direction === "Below"
+                              ? "#fee2e2"
+                              : "#e5e7eb",
+                          color:
+                            r.direction === "Above"
+                              ? C.success
+                              : r.direction === "Below"
+                              ? C.danger
+                              : C.muted,
+                          borderRadius: 5,
+                          padding: "3px 8px",
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {r.direction}
+                      </span>
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.slotAvailPct.toFixed(1)}%
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.jobsPerTech.toFixed(1)}
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.completed_jobs}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
         <Card title="Slots & Techs by Day — Week in Review vs Prior Week">
           <ResponsiveContainer width="100%" height={chartH}>
             <ComposedChart
@@ -1715,113 +1822,6 @@ function CapacityReview({
                         </div>
                       </td>
                     ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        <Card title="Capacity Table" style={{ gridColumn: "1/-1" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead>
-                <tr>
-                  {[
-                    "Market",
-                    "Slots",
-                    "Techs",
-                    "Util%",
-                    "Prior",
-                    "3M Avg",
-                    "Δ vs 3M",
-                    "Direction",
-                    "Avail%",
-                    "Jobs/Tech",
-                    "Jobs",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        padding: "10px 12px",
-                        textAlign: "left",
-                        color: C.muted,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: ".06em",
-                        background: C.panel,
-                        borderBottom: `1px solid ${C.border}`,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {capacityTableData.map((r, i) => (
-                  <tr
-                    key={r.market}
-                    style={{
-                      background: i % 2 === 0 ? C.surface : C.panel,
-                      borderBottom: `1px solid ${C.border}`,
-                    }}
-                  >
-                    <td style={{ padding: "11px 12px", fontWeight: 700, color: C.primary }}>
-                      {r.market}
-                    </td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.slots}</td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.techs}</td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.util.toFixed(1)}%</td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.util_pw.toFixed(1)}%</td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>
-                      {r.trailingAvg.toFixed(1)}%
-                    </td>
-                    <td
-                      style={{
-                        padding: "11px 12px",
-                        color: r.variancePct >= 0 ? C.success : C.danger,
-                        fontWeight: 700,
-                      }}
-                    >
-                      {r.variancePct >= 0 ? "+" : ""}
-                      {r.variancePct.toFixed(1)}%
-                    </td>
-                    <td style={{ padding: "11px 12px" }}>
-                      <span
-                        style={{
-                          background:
-                            r.direction === "Above"
-                              ? "#d1fae5"
-                              : r.direction === "Below"
-                              ? "#fee2e2"
-                              : "#e5e7eb",
-                          color:
-                            r.direction === "Above"
-                              ? C.success
-                              : r.direction === "Below"
-                              ? C.danger
-                              : C.muted,
-                          borderRadius: 5,
-                          padding: "3px 8px",
-                          fontSize: 11,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {r.direction}
-                      </span>
-                    </td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>
-                      {r.slotAvailPct.toFixed(1)}%
-                    </td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>
-                      {r.jobsPerTech.toFixed(1)}
-                    </td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>
-                      {r.completed_jobs}
-                    </td>
                   </tr>
                 ))}
               </tbody>
