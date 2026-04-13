@@ -263,7 +263,8 @@ const diagAction = (s) =>
   ({
     "Demand Constrained": "Increase lead volume",
     "Funnel Issue": "Improve booking follow-up",
-    "Supply Constrained": "Add slots / adjust staffing / Decrease Marketing Spend (Demand)",
+    "Supply Constrained":
+      "Add slots / adjust staffing / Decrease Marketing Spend (Demand)",
     "Conversion Issue": "Investigate low completion yield",
     Balanced: "Monitor — no immediate action",
   })[s];
@@ -420,21 +421,6 @@ const KPI_VALUE_FORMAT = (v, fmt) => {
   return Math.round(v).toLocaleString();
 };
 
-// Recharts LineChart does not support one line per row automatically,
-// so we use a fixed palette by index for market trend lines.
-const MARKET_LINE_COLORS = [
-  C.info,
-  C.success,
-  C.warning,
-  C.danger,
-  C.purple,
-  C.teal,
-  "#0ea5e9",
-  "#84cc16",
-  "#f97316",
-  "#ec4899",
-];
-
 function KPICard({
   label,
   cur,
@@ -443,6 +429,7 @@ function KPICard({
   inv = false,
   isMobile = false,
   weekTrendData = [],
+  compareLabel = "baseline",
 }) {
   const d =
     fmt === "%" || fmt === "x"
@@ -536,7 +523,7 @@ function KPICard({
         </span>
         <span style={{ color: C.subtle, fontSize: 11 }}>
           {up ? "+" : ""}
-          {KPI_VALUE_FORMAT(d, fmt)} vs prior
+          {KPI_VALUE_FORMAT(d, fmt)} vs {compareLabel}
         </span>
       </div>
     </div>
@@ -610,6 +597,7 @@ export default function App() {
       return {
         CUR: derive(aggWeek([])),
         PREV: derive(aggWeek([])),
+        BASE: derive(aggWeek([])),
         CUR_WK: "",
         PREV_WK: "",
         allWeekKeys: [],
@@ -628,6 +616,11 @@ export default function App() {
         weeklyMarketHeatmap: [],
         weeklyDowHeatmap: [],
         markets: [],
+        scorecardBaselineMeta: {
+          weeksUsed: 0,
+          startWeek: "",
+          endWeek: "",
+        },
       };
     }
 
@@ -655,6 +648,17 @@ export default function App() {
 
     const CUR = derive(aggWeek(curRows));
     const PREV = derive(aggWeek(prevRows));
+
+    const scorecardBaselineWeeks = weekKeys.filter((k) => k < CUR_WK).slice(-12);
+    const scorecardBaselineRows = scorecardBaselineWeeks.flatMap(
+      (wk) => allWeeks[wk] || []
+    );
+    const BASE = derive(aggWeek(scorecardBaselineRows));
+    const scorecardBaselineMeta = {
+      weeksUsed: scorecardBaselineWeeks.length,
+      startWeek: scorecardBaselineWeeks[0] || "",
+      endWeek: scorecardBaselineWeeks[scorecardBaselineWeeks.length - 1] || "",
+    };
 
     const MARKETS = [...new Set(RAW.map((r) => str(r.market)).filter(Boolean))].sort();
 
@@ -824,108 +828,81 @@ export default function App() {
       };
     });
 
-    const utilTrendByMarketChart = trailingWeeks.map((wk) => {
-      const row = { week: wk.slice(5) };
+    const capacityTableData = MARKETS.map((market) => {
+      const cur = curByMkt.find((m) => m.market === market) || {};
+      const prev = prevByMkt.find((m) => m.market === market) || {};
+      const trailing = utilTrendByMarket.find((m) => m.market === market);
+
+      return {
+        market,
+        slots: cur.slots || 0,
+        techs: cur.techs || 0,
+        util: cur.utilization || 0,
+        util_pw: prev.utilization || 0,
+        slotAvailPct: cur.slotAvailPct || 0,
+        jobsPerTech: cur.jobsPerTech || 0,
+        completed_jobs: cur.completed_jobs || 0,
+        trailingAvg: trailing?.trailingAvg || 0,
+        variancePct: trailing?.variancePct || 0,
+        direction: trailing?.direction || "Flat",
+      };
+    });
+
+    const last16Weeks = weekKeys.filter((k) => k <= CUR_WK).slice(-16);
+
+    const weeklyMarketHeatmap = last16Weeks.map((wk) => {
+      const row = { week: wk.slice(5), fullWeek: wk };
+
       MARKETS.forEach((market) => {
         const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
         const a = derive(aggWeek(rows));
         row[market] = a.utilization;
       });
+
       return row;
     });
 
-    const dowMarketHeatmap = MARKETS.map((market) => {
-      const rows = curRows.filter((r) => str(r.market) === market);
+    const weeklyDowHeatmap = last16Weeks.map((wk) => {
+      const baseRows = allWeeks[wk] || [];
 
-      const byDow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
+      const allMarketsRow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
         (acc, dow) => {
-          const a = derive(aggWeek(rows.filter((r) => str(r.dow) === dow)));
+          const a = derive(aggWeek(baseRows.filter((r) => str(r.dow) === dow)));
           acc[dow] = a.utilization;
           return acc;
         },
         {}
       );
 
+      const byMarket = MARKETS.reduce((acc, market) => {
+        const marketRows = baseRows.filter((r) => str(r.market) === market);
+
+        acc[market] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
+          (dAcc, dow) => {
+            const a = derive(
+              aggWeek(marketRows.filter((r) => str(r.dow) === dow))
+            );
+            dAcc[dow] = a.utilization;
+            return dAcc;
+          },
+          {}
+        );
+
+        return acc;
+      }, {});
+
       return {
-        market,
-        ...byDow,
+        week: wk.slice(5),
+        fullWeek: wk,
+        allMarkets: allMarketsRow,
+        byMarket,
       };
     });
-
-   const capacityTableData = MARKETS.map((market) => {
-  const cur = curByMkt.find((m) => m.market === market) || {};
-  const prev = prevByMkt.find((m) => m.market === market) || {};
-  const trailing = utilTrendByMarket.find((m) => m.market === market);
-
-  return {
-    market,
-    slots: cur.slots || 0,
-    techs: cur.techs || 0,
-    util: cur.utilization || 0,
-    util_pw: prev.utilization || 0,
-    slotAvailPct: cur.slotAvailPct || 0,
-    jobsPerTech: cur.jobsPerTech || 0,
-    completed_jobs: cur.completed_jobs || 0,
-    trailingAvg: trailing?.trailingAvg || 0,
-    variancePct: trailing?.variancePct || 0,
-    direction: trailing?.direction || "Flat",
-  };
-});
-
-const last16Weeks = weekKeys.filter((k) => k <= CUR_WK).slice(-16);
-
-const weeklyMarketHeatmap = last16Weeks.map((wk) => {
-  const row = { week: wk.slice(5), fullWeek: wk };
-
-  MARKETS.forEach((market) => {
-    const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
-    const a = derive(aggWeek(rows));
-    row[market] = a.utilization;
-  });
-
-  return row;
-});
-
-const weeklyDowHeatmap = last16Weeks.map((wk) => {
-  const baseRows = allWeeks[wk] || [];
-
-  const allMarketsRow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
-    (acc, dow) => {
-      const a = derive(aggWeek(baseRows.filter((r) => str(r.dow) === dow)));
-      acc[dow] = a.utilization;
-      return acc;
-    },
-    {}
-  );
-
-  const byMarket = MARKETS.reduce((acc, market) => {
-    const marketRows = baseRows.filter((r) => str(r.market) === market);
-
-    acc[market] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
-      (dAcc, dow) => {
-        const a = derive(
-          aggWeek(marketRows.filter((r) => str(r.dow) === dow))
-        );
-        dAcc[dow] = a.utilization;
-        return dAcc;
-      },
-      {}
-    );
-
-    return acc;
-  }, {});
-
-  return {
-    week: wk.slice(5),
-    fullWeek: wk,
-    allMarkets: allMarketsRow,
-    byMarket,
-  };
-});
 
     return {
       CUR,
       PREV,
+      BASE,
       CUR_WK,
       PREV_WK,
       allWeekKeys: weekKeys,
@@ -944,6 +921,7 @@ const weeklyDowHeatmap = last16Weeks.map((wk) => {
       weeklyMarketHeatmap,
       weeklyDowHeatmap,
       markets: MARKETS,
+      scorecardBaselineMeta,
     };
   }, [rawData, selectedWeek]);
 
@@ -1201,10 +1179,10 @@ const weeklyDowHeatmap = last16Weeks.map((wk) => {
           <Scorecard
             bp={bp}
             CUR={derived.CUR}
-            PREV={derived.PREV}
+            BASE={derived.BASE}
             weekTrendData={derived.weekTrendData}
             CUR_WK={derived.CUR_WK}
-            PREV_WK={derived.PREV_WK}
+            scorecardBaselineMeta={derived.scorecardBaselineMeta}
           />
         )}
 
@@ -1219,18 +1197,18 @@ const weeklyDowHeatmap = last16Weeks.map((wk) => {
           />
         )}
 
-       {tab === "capacity" && (
-  <CapacityReview
-    bp={bp}
-    CUR_WK={derived.CUR_WK}
-    PREV_WK={derived.PREV_WK}
-    curByDow={derived.curByDow}
-    capacityTableData={derived.capacityTableData}
-    weeklyMarketHeatmap={derived.weeklyMarketHeatmap}
-    weeklyDowHeatmap={derived.weeklyDowHeatmap}
-    markets={derived.markets}
-  />
-)}
+        {tab === "capacity" && (
+          <CapacityReview
+            bp={bp}
+            CUR_WK={derived.CUR_WK}
+            PREV_WK={derived.PREV_WK}
+            curByDow={derived.curByDow}
+            capacityTableData={derived.capacityTableData}
+            weeklyMarketHeatmap={derived.weeklyMarketHeatmap}
+            weeklyDowHeatmap={derived.weeklyDowHeatmap}
+            markets={derived.markets}
+          />
+        )}
 
         {tab === "workmix" && (
           <WorkMix
@@ -1253,50 +1231,57 @@ const weeklyDowHeatmap = last16Weeks.map((wk) => {
 }
 
 // ── 1. SCORECARD ──────────────────────────────────────────────────────────────
-function Scorecard({ bp, CUR, PREV, weekTrendData, CUR_WK, PREV_WK }) {
+function Scorecard({ bp, CUR, BASE, weekTrendData, CUR_WK, scorecardBaselineMeta }) {
   const isMobile = bp === "mobile";
   const cols = isMobile ? 2 : bp === "tablet" ? 3 : 5;
 
   const kpis = [
-    { label: "Leads", cur: CUR.leads, prev: PREV.leads, fmt: "n" },
+    { label: "Leads", cur: CUR.leads, prev: BASE.leads, fmt: "n" },
     {
       label: "Booking Rate",
       cur: CUR.bookingRate,
-      prev: PREV.bookingRate,
+      prev: BASE.bookingRate,
       fmt: "%",
     },
     {
       label: "Conversion Rate",
       cur: CUR.convRate,
-      prev: PREV.convRate,
+      prev: BASE.convRate,
       fmt: "%",
     },
     {
       label: "Completed Jobs",
       cur: CUR.completed_jobs,
-      prev: PREV.completed_jobs,
+      prev: BASE.completed_jobs,
       fmt: "n",
     },
     {
       label: "Utilization",
       cur: CUR.utilization,
-      prev: PREV.utilization,
+      prev: BASE.utilization,
       fmt: "%",
     },
-    { label: "Techs", cur: CUR.techs, prev: PREV.techs, fmt: "n" },
-    { label: "Slots", cur: CUR.slots, prev: PREV.slots, fmt: "n" },
+    { label: "Techs", cur: CUR.techs, prev: BASE.techs, fmt: "n" },
+    { label: "Slots", cur: CUR.slots, prev: BASE.slots, fmt: "n" },
     {
       label: "% Slots Avail",
       cur: CUR.slotAvailPct,
-      prev: PREV.slotAvailPct,
+      prev: BASE.slotAvailPct,
       fmt: "%",
     },
-    { label: "LSR", cur: CUR.lsr, prev: PREV.lsr, fmt: "x", inv: true },
+    { label: "LSR", cur: CUR.lsr, prev: BASE.lsr, fmt: "x", inv: true },
   ];
 
   return (
     <div>
-      <SectionHeader title="Weekly Scorecard" sub={`${CUR_WK} vs ${PREV_WK}`} />
+      <SectionHeader
+        title="Weekly Scorecard"
+        sub={
+          scorecardBaselineMeta.weeksUsed > 0
+            ? `${CUR_WK} vs last ${scorecardBaselineMeta.weeksUsed}-week average (${scorecardBaselineMeta.startWeek} to ${scorecardBaselineMeta.endWeek})`
+            : `${CUR_WK} vs baseline unavailable`
+        }
+      />
       <div
         style={{
           display: "grid",
@@ -1310,6 +1295,7 @@ function Scorecard({ bp, CUR, PREV, weekTrendData, CUR_WK, PREV_WK }) {
             {...k}
             isMobile={isMobile}
             weekTrendData={weekTrendData}
+            compareLabel={`${scorecardBaselineMeta.weeksUsed || 12}W avg`}
           />
         ))}
       </div>
@@ -1596,8 +1582,12 @@ function CapacityReview({
                     </td>
                     <td style={{ padding: "11px 12px", color: C.secondary }}>{r.slots}</td>
                     <td style={{ padding: "11px 12px", color: C.secondary }}>{r.techs}</td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.util.toFixed(1)}%</td>
-                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.util_pw.toFixed(1)}%</td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.util.toFixed(1)}%
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.util_pw.toFixed(1)}%
+                    </td>
                     <td style={{ padding: "11px 12px", color: C.secondary }}>
                       {r.trailingAvg.toFixed(1)}%
                     </td>
@@ -1720,57 +1710,60 @@ function CapacityReview({
         </Card>
 
         <Card title="Utilization by Market — Current vs Prior + 3M Avg">
-  <ResponsiveContainer width="100%" height={isMobile ? 260 : 320}>
-    <ComposedChart
-      data={capacityTableData}
-      layout="vertical"
-      margin={{ top: 12, right: 24, left: 8, bottom: 0 }}
-    >
-      <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false} />
-      <XAxis
-        type="number"
-        domain={[0, 100]}
-        tick={{ fill: C.muted, fontSize: 10 }}
-        axisLine={false}
-        tickLine={false}
-        unit="%"
-      />
-      <YAxis
-        dataKey="market"
-        type="category"
-        tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
-        axisLine={false}
-        tickLine={false}
-        width={isMobile ? 70 : 90}
-      />
-      <Tooltip content={<TT showDelta={true} />} />
-      <Legend wrapperStyle={{ fontSize: 10 }} />
+          <ResponsiveContainer width="100%" height={isMobile ? 260 : 320}>
+            <ComposedChart
+              data={capacityTableData}
+              layout="vertical"
+              margin={{ top: 12, right: 24, left: 8, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false} />
+              <XAxis
+                type="number"
+                domain={[0, 100]}
+                tick={{ fill: C.muted, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+                unit="%"
+              />
+              <YAxis
+                dataKey="market"
+                type="category"
+                tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
+                axisLine={false}
+                tickLine={false}
+                width={isMobile ? 70 : 90}
+              />
+              <Tooltip content={<TT showDelta={true} />} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
 
-      <Bar
-        dataKey="util"
-        radius={[0, 3, 3, 0]}
-        fill={C.info}
-        name={`Util% (${String(CUR_WK).slice(5)})`}
-      />
-      <Bar
-        dataKey="util_pw"
-        radius={[0, 3, 3, 0]}
-        fill={`${C.subtle}99`}
-        name={`Util% (${String(PREV_WK).slice(5)})`}
-      />
-      <Line
-        type="monotone"
-        dataKey="trailingAvg"
-        stroke={C.danger}
-        strokeWidth={2}
-        dot={{ r: 3, fill: C.danger, strokeWidth: 0 }}
-        name="Trailing 3M Avg"
-      />
-    </ComposedChart>
-  </ResponsiveContainer>
-</Card>
+              <Bar
+                dataKey="util"
+                radius={[0, 3, 3, 0]}
+                fill={C.info}
+                name={`Util% (${String(CUR_WK).slice(5)})`}
+              />
+              <Bar
+                dataKey="util_pw"
+                radius={[0, 3, 3, 0]}
+                fill={`${C.subtle}99`}
+                name={`Util% (${String(PREV_WK).slice(5)})`}
+              />
+              <Line
+                type="monotone"
+                dataKey="trailingAvg"
+                stroke={C.danger}
+                strokeWidth={2}
+                dot={{ r: 3, fill: C.danger, strokeWidth: 0 }}
+                name="Trailing 3M Avg"
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </Card>
 
-        <Card title="Utilization Heatmap by Market — Last 16 Weeks" style={{ gridColumn: "1/-1" }}>
+        <Card
+          title="Utilization Heatmap by Market — Last 16 Weeks"
+          style={{ gridColumn: "1/-1" }}
+        >
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 6 }}>
               <thead>
