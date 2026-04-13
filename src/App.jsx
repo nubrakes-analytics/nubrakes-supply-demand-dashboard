@@ -377,7 +377,7 @@ const TT = ({ active, payload, label, showDelta = false }) => {
   );
 };
 
-const DeltaLabel = ({ x, y, width, value, index, data, dataKey, pwKey }) => {
+const DeltaLabel = ({ x, y, width, value, index, data, pwKey }) => {
   if (!data || value === undefined || value === null) return null;
 
   const row =
@@ -419,6 +419,21 @@ const KPI_VALUE_FORMAT = (v, fmt) => {
   if (fmt === "x") return `${v.toFixed(1)}x`;
   return Math.round(v).toLocaleString();
 };
+
+// Recharts LineChart does not support one line per row automatically,
+// so we use a fixed palette by index for market trend lines.
+const MARKET_LINE_COLORS = [
+  C.info,
+  C.success,
+  C.warning,
+  C.danger,
+  C.purple,
+  C.teal,
+  "#0ea5e9",
+  "#84cc16",
+  "#f97316",
+  "#ec4899",
+];
 
 function KPICard({
   label,
@@ -539,54 +554,54 @@ export default function App() {
   const bp = useBreakpoint();
 
   useEffect(() => {
-  let isMounted = true;
+    let isMounted = true;
 
-  const loadData = async (isFirstLoad = false) => {
-    if (isFirstLoad) setLoading(true);
+    const loadData = async (isFirstLoad = false) => {
+      if (isFirstLoad) setLoading(true);
 
-    try {
-      const res = await fetch(`${DATA_URL}?ts=${Date.now()}`, {
-        cache: "no-store",
-      });
+      try {
+        const res = await fetch(`${DATA_URL}?ts=${Date.now()}`, {
+          cache: "no-store",
+        });
 
-      if (!res.ok) {
-        throw new Error(`Failed to load dataset: ${res.status}`);
+        if (!res.ok) {
+          throw new Error(`Failed to load dataset: ${res.status}`);
+        }
+
+        const d = await res.json();
+
+        if (!isMounted) return;
+
+        setRawData(Array.isArray(d) ? d : []);
+        setLastLoadedAt(getChicagoNowLabel());
+        setLoadError("");
+      } catch (err) {
+        console.error("fact_nubrakes_supply_demand_daily.json load failed", err);
+
+        if (!isMounted) return;
+
+        setLoadError(err?.message || "Dataset load failed");
+
+        if (isFirstLoad) {
+          setRawData([]);
+        }
+      } finally {
+        if (isMounted && isFirstLoad) {
+          setLoading(false);
+        }
       }
+    };
 
-      const d = await res.json();
+    loadData(true);
+    const timer = setInterval(() => {
+      loadData(false);
+    }, AUTO_REFRESH_MS);
 
-      if (!isMounted) return;
-
-      setRawData(Array.isArray(d) ? d : []);
-      setLastLoadedAt(getChicagoNowLabel());
-      setLoadError("");
-    } catch (err) {
-      console.error("fact_nubrakes_supply_demand_daily.json load failed", err);
-
-      if (!isMounted) return;
-
-      setLoadError(err?.message || "Dataset load failed");
-
-      if (isFirstLoad) {
-        setRawData([]);
-      }
-    } finally {
-      if (isMounted && isFirstLoad) {
-        setLoading(false);
-      }
-    }
-  };
-
-  loadData(true);
-  const timer = setInterval(() => {
-    loadData(false);
-  }, AUTO_REFRESH_MS);
-
-  return () => {
-    isMounted = false;
-    clearInterval(timer);
-  };
-}, []);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   const derived = useMemo(() => {
     const RAW = rawData;
@@ -609,6 +624,10 @@ export default function App() {
         weekMixData: [],
         utilByMktCompare: [],
         actionTableData: [],
+        utilTrendByMarket: [],
+        utilTrendByMarketChart: [],
+        dowMarketHeatmap: [],
+        capacityTableData: [],
       };
     }
 
@@ -759,6 +778,100 @@ export default function App() {
       };
     });
 
+    const trailingWeeks = weekKeys.filter((k) => k <= CUR_WK).slice(-13);
+
+    const utilTrendByMarket = MARKETS.map((market) => {
+      const series = trailingWeeks.map((wk) => {
+        const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
+        const a = derive(aggWeek(rows));
+        return {
+          week: wk.slice(5),
+          fullWeek: wk,
+          util: a.utilization,
+          slots: a.slots,
+          techs: a.techs,
+          market,
+        };
+      });
+
+      const validUtil = series
+        .slice(0, -1)
+        .map((d) => d.util)
+        .filter((v) => v > 0);
+
+      const trailingAvg =
+        validUtil.length > 0
+          ? validUtil.reduce((s, v) => s + v, 0) / validUtil.length
+          : 0;
+
+      const currentUtil = series.length ? series[series.length - 1].util : 0;
+
+      return {
+        market,
+        trailingAvg,
+        currentUtil,
+        variancePct:
+          trailingAvg > 0
+            ? +(((currentUtil - trailingAvg) / trailingAvg) * 100).toFixed(1)
+            : 0,
+        direction:
+          trailingAvg > 0
+            ? currentUtil >= trailingAvg
+              ? "Above"
+              : "Below"
+            : "Flat",
+        series,
+      };
+    });
+
+    const utilTrendByMarketChart = trailingWeeks.map((wk) => {
+      const row = { week: wk.slice(5) };
+      MARKETS.forEach((market) => {
+        const rows = (allWeeks[wk] || []).filter((r) => str(r.market) === market);
+        const a = derive(aggWeek(rows));
+        row[market] = a.utilization;
+      });
+      return row;
+    });
+
+    const dowMarketHeatmap = MARKETS.map((market) => {
+      const rows = curRows.filter((r) => str(r.market) === market);
+
+      const byDow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].reduce(
+        (acc, dow) => {
+          const a = derive(aggWeek(rows.filter((r) => str(r.dow) === dow)));
+          acc[dow] = a.utilization;
+          return acc;
+        },
+        {}
+      );
+
+      return {
+        market,
+        ...byDow,
+      };
+    });
+
+    const capacityTableData = MARKETS.map((market) => {
+      const cur = curByMkt.find((m) => m.market === market) || {};
+      const prev = prevByMkt.find((m) => m.market === market) || {};
+      const trailing = utilTrendByMarket.find((m) => m.market === market);
+
+      return {
+        market,
+        slots: cur.slots || 0,
+        techs: cur.techs || 0,
+        util: cur.utilization || 0,
+        util_pw: prev.utilization || 0,
+        slotAvailPct: cur.slotAvailPct || 0,
+        jobsPerTech: cur.jobsPerTech || 0,
+        completed_jobs: cur.completed_jobs || 0,
+        trailingAvg: trailing?.trailingAvg || 0,
+        variancePct: trailing?.variancePct || 0,
+        direction: trailing?.direction || "Flat",
+      };
+    });
+
     return {
       CUR,
       PREV,
@@ -776,6 +889,10 @@ export default function App() {
       weekMixData,
       utilByMktCompare,
       actionTableData,
+      utilTrendByMarket,
+      utilTrendByMarketChart,
+      dowMarketHeatmap,
+      capacityTableData,
     };
   }, [rawData, selectedWeek]);
 
@@ -819,7 +936,6 @@ export default function App() {
         color: C.primary,
       }}
     >
-      {/* Header */}
       <div
         style={{
           background: C.surface,
@@ -871,7 +987,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Week navigator */}
       <div
         style={{
           background: C.surface,
@@ -985,7 +1100,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Tabs */}
       <div
         style={{
           background: C.surface,
@@ -1025,7 +1139,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Content */}
       <div
         style={{
           padding: bp === "mobile" ? "14px" : "24px",
@@ -1063,6 +1176,10 @@ export default function App() {
             curByDow={derived.curByDow}
             utilByMktCompare={derived.utilByMktCompare}
             weekTrendData={derived.weekTrendData}
+            utilTrendByMarket={derived.utilTrendByMarket}
+            utilTrendByMarketChart={derived.utilTrendByMarketChart}
+            dowMarketHeatmap={derived.dowMarketHeatmap}
+            capacityTableData={derived.capacityTableData}
           />
         )}
 
@@ -1241,7 +1358,7 @@ function DemandReview({
                 label={
                   <DeltaLabel
                     data={curByDow}
-                    dataKey={metric}
+                    value={undefined}
                     pwKey={metricPwMap[metric]}
                   />
                 }
@@ -1318,7 +1435,7 @@ function DemandReview({
                 label={
                   <DeltaLabel
                     data={mktCompare}
-                    dataKey={metric}
+                    value={undefined}
                     pwKey={`${metric}_pw`}
                   />
                 }
@@ -1343,12 +1460,28 @@ function CapacityReview({
   CUR_WK,
   PREV_WK,
   curByDow,
-  utilByMktCompare,
-  weekTrendData,
+  utilTrendByMarket,
+  utilTrendByMarketChart,
+  dowMarketHeatmap,
+  capacityTableData,
 }) {
   const isMobile = bp === "mobile";
   const cols = isMobile ? 1 : 2;
-  const chartH = isMobile ? 180 : 210;
+  const chartH = isMobile ? 190 : 220;
+
+  const heatColor = (v) => {
+    if (v >= 85) return "#d1fae5";
+    if (v >= 70) return "#fef3c7";
+    if (v > 0) return "#fee2e2";
+    return "#f8fafc";
+  };
+
+  const heatText = (v) => {
+    if (v >= 85) return C.success;
+    if (v >= 70) return C.warning;
+    if (v > 0) return C.danger;
+    return C.subtle;
+  };
 
   return (
     <div>
@@ -1396,9 +1529,7 @@ function CapacityReview({
                 fill={C.info}
                 radius={[3, 3, 0, 0]}
                 name={`Slots (${String(CUR_WK).slice(5)})`}
-                label={
-                  <DeltaLabel data={curByDow} dataKey="slots" pwKey="slots_pw" />
-                }
+                label={<DeltaLabel data={curByDow} value={undefined} pwKey="slots_pw" />}
               />
               <Bar
                 yAxisId="l"
@@ -1431,18 +1562,14 @@ function CapacityReview({
           </ResponsiveContainer>
         </Card>
 
-        <Card title="Utilization by Market — Week in Review vs Prior Week">
+        <Card title="Utilization by Market — Current vs Prior + 3M Avg">
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart
-              data={utilByMktCompare}
+            <ComposedChart
+              data={capacityTableData}
               layout="vertical"
-              margin={{ top: 4, right: 40, left: 0, bottom: 0 }}
+              margin={{ top: 4, right: 50, left: 0, bottom: 0 }}
             >
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke={C.border}
-                horizontal={false}
-              />
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false} />
               <XAxis
                 type="number"
                 domain={[0, 100]}
@@ -1457,7 +1584,7 @@ function CapacityReview({
                 tick={{ fill: C.muted, fontSize: isMobile ? 8 : 10 }}
                 axisLine={false}
                 tickLine={false}
-                width={isMobile ? 62 : 72}
+                width={isMobile ? 62 : 80}
               />
               <Tooltip content={<TT showDelta={true} />} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
@@ -1465,56 +1592,33 @@ function CapacityReview({
               <Bar
                 dataKey="util"
                 radius={[0, 3, 3, 0]}
+                fill={C.info}
                 name={`Util% (${String(CUR_WK).slice(5)})`}
-                label={
-                  <DeltaLabel
-                    data={utilByMktCompare}
-                    dataKey="util"
-                    pwKey="util_pw"
-                  />
-                }
-              >
-                {utilByMktCompare.map((r, i) => (
-                  <Cell
-                    key={i}
-                    fill={
-                      r.util >= 85
-                        ? C.success
-                        : r.util >= 60
-                        ? C.warning
-                        : C.danger
-                    }
-                  />
-                ))}
-              </Bar>
-
+                label={<DeltaLabel data={capacityTableData} value={undefined} pwKey="util_pw" />}
+              />
               <Bar
                 dataKey="util_pw"
                 radius={[0, 3, 3, 0]}
+                fill={`${C.subtle}99`}
                 name={`Util% (${String(PREV_WK).slice(5)})`}
-              >
-                {utilByMktCompare.map((r, i) => (
-                  <Cell
-                    key={i}
-                    fill={`${
-                      r.util_pw >= 85
-                        ? C.success
-                        : r.util_pw >= 60
-                        ? C.warning
-                        : C.danger
-                    }55`}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
+              />
+              <Line
+                type="monotone"
+                dataKey="trailingAvg"
+                stroke={C.danger}
+                strokeWidth={2}
+                dot={{ r: 3, fill: C.danger, strokeWidth: 0 }}
+                name="Trailing 3M Avg"
+              />
+            </ComposedChart>
           </ResponsiveContainer>
         </Card>
 
-        <Card title="Utilization % Trend" style={{ gridColumn: "1/-1" }}>
-          <ResponsiveContainer width="100%" height={isMobile ? 160 : 200}>
+        <Card title="Historical Utilization Trend by Market" style={{ gridColumn: "1/-1" }}>
+          <ResponsiveContainer width="100%" height={isMobile ? 220 : 280}>
             <LineChart
-              data={weekTrendData}
-              margin={{ top: 8, right: 4, left: -10, bottom: 0 }}
+              data={utilTrendByMarketChart}
+              margin={{ top: 8, right: 12, left: -10, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
               <XAxis
@@ -1531,59 +1635,198 @@ function CapacityReview({
                 unit="%"
               />
               <Tooltip content={<TT />} />
-              <Line
-                type="monotone"
-                dataKey="util"
-                stroke={C.success}
-                strokeWidth={2}
-                dot={{ r: 3, fill: C.success, strokeWidth: 0 }}
-                name="Utilization %"
-              />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              {utilTrendByMarket.map((m, i) => (
+                <Line
+                  key={m.market}
+                  type="monotone"
+                  dataKey={m.market}
+                  stroke={MARKET_LINE_COLORS[i % MARKET_LINE_COLORS.length]}
+                  strokeWidth={2}
+                  dot={false}
+                  name={m.market}
+                />
+              ))}
             </LineChart>
           </ResponsiveContainer>
         </Card>
 
-        <Card
-          title="Weekday vs Weekend Slot Capacity Trend"
-          style={{ gridColumn: "1/-1" }}
-        >
-          <ResponsiveContainer width="100%" height={isMobile ? 160 : 200}>
-            <LineChart
-              data={weekTrendData}
-              margin={{ top: 8, right: 4, left: -10, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis
-                dataKey="week"
-                tick={{ fill: C.muted, fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: C.muted, fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip content={<TT />} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Line
-                type="monotone"
-                dataKey="wdSlots"
-                stroke={C.info}
-                strokeWidth={2}
-                dot={{ r: 3, fill: C.info, strokeWidth: 0 }}
-                name="Mon–Fri"
-              />
-              <Line
-                type="monotone"
-                dataKey="weSlots"
-                stroke={C.danger}
-                strokeWidth={2}
-                dot={{ r: 3, fill: C.danger, strokeWidth: 0 }}
-                name="Sat–Sun"
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        <Card title="Utilization Heatmap — Day of Week by Market" style={{ gridColumn: "1/-1" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 6 }}>
+              <thead>
+                <tr>
+                  <th
+                    style={{
+                      textAlign: "left",
+                      fontSize: 11,
+                      color: C.muted,
+                      paddingBottom: 4,
+                    }}
+                  >
+                    Market
+                  </th>
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                    <th
+                      key={d}
+                      style={{
+                        textAlign: "center",
+                        fontSize: 11,
+                        color: C.muted,
+                        paddingBottom: 4,
+                        minWidth: 60,
+                      }}
+                    >
+                      {d}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {dowMarketHeatmap.map((r) => (
+                  <tr key={r.market}>
+                    <td
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: C.primary,
+                        whiteSpace: "nowrap",
+                        paddingRight: 8,
+                      }}
+                    >
+                      {r.market}
+                    </td>
+                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                      <td key={d}>
+                        <div
+                          style={{
+                            background: heatColor(r[d]),
+                            color: heatText(r[d]),
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 8,
+                            padding: "10px 6px",
+                            textAlign: "center",
+                            fontSize: 11,
+                            fontWeight: 700,
+                          }}
+                          title={`${r.market} ${d}: ${r[d].toFixed(1)}%`}
+                        >
+                          {r[d] ? `${r[d].toFixed(1)}%` : "—"}
+                        </div>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card title="Capacity Table" style={{ gridColumn: "1/-1" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {[
+                    "Market",
+                    "Slots",
+                    "Techs",
+                    "Util%",
+                    "Prior",
+                    "3M Avg",
+                    "Δ vs 3M",
+                    "Direction",
+                    "Avail%",
+                    "Jobs/Tech",
+                    "Jobs",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "10px 12px",
+                        textAlign: "left",
+                        color: C.muted,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: ".06em",
+                        background: C.panel,
+                        borderBottom: `1px solid ${C.border}`,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {capacityTableData.map((r, i) => (
+                  <tr
+                    key={r.market}
+                    style={{
+                      background: i % 2 === 0 ? C.surface : C.panel,
+                      borderBottom: `1px solid ${C.border}`,
+                    }}
+                  >
+                    <td style={{ padding: "11px 12px", fontWeight: 700, color: C.primary }}>
+                      {r.market}
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.slots}</td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.techs}</td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.util.toFixed(1)}%</td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>{r.util_pw.toFixed(1)}%</td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.trailingAvg.toFixed(1)}%
+                    </td>
+                    <td
+                      style={{
+                        padding: "11px 12px",
+                        color: r.variancePct >= 0 ? C.success : C.danger,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {r.variancePct >= 0 ? "+" : ""}
+                      {r.variancePct.toFixed(1)}%
+                    </td>
+                    <td style={{ padding: "11px 12px" }}>
+                      <span
+                        style={{
+                          background:
+                            r.direction === "Above"
+                              ? "#d1fae5"
+                              : r.direction === "Below"
+                              ? "#fee2e2"
+                              : "#e5e7eb",
+                          color:
+                            r.direction === "Above"
+                              ? C.success
+                              : r.direction === "Below"
+                              ? C.danger
+                              : C.muted,
+                          borderRadius: 5,
+                          padding: "3px 8px",
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {r.direction}
+                      </span>
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.slotAvailPct.toFixed(1)}%
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.jobsPerTech.toFixed(1)}
+                    </td>
+                    <td style={{ padding: "11px 12px", color: C.secondary }}>
+                      {r.completed_jobs}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       </div>
     </div>
