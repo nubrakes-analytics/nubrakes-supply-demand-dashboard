@@ -1406,17 +1406,18 @@ export default function App() {
           />
         )}
 
-        {tab === "workmix" && (
-          <WorkMix
-            bp={bp}
-            weekMixData={derived.weekMixData}
-            curByMkt={derived.curByMkt}
-            workMixCompare={derived.workMixCompare}
-            workMixSignal={derived.workMixSignal}
-            CUR_WK={derived.CUR_WK}
-            scorecardBaselineMeta={derived.scorecardBaselineMeta}
-          />
-        )}
+       {tab === "workmix" && (
+  <WorkMix
+    bp={bp}
+    rawData={rawData}
+    weekMixData={derived.weekMixData}
+    curByMkt={derived.curByMkt}
+    workMixCompare={derived.workMixCompare}
+    workMixSignal={derived.workMixSignal}
+    CUR_WK={derived.CUR_WK}
+    scorecardBaselineMeta={derived.scorecardBaselineMeta}
+  />
+)}
 
         {tab === "action" && (
           <ActionTable
@@ -2173,6 +2174,7 @@ function CapacityReview({
 // ── 4. WORK MIX ───────────────────────────────────────────────────────────────
 function WorkMix({
   bp,
+  rawData,
   weekMixData,
   curByMkt,
   workMixCompare,
@@ -2182,6 +2184,7 @@ function WorkMix({
 }) {
   const isMobile = bp === "mobile";
   const cols = isMobile ? 1 : 2;
+  const [mixScope, setMixScope] = useState("ALL");
 
   const completedDelta =
     workMixSignal.completed_base > 0
@@ -2207,13 +2210,78 @@ function WorkMix({
 
     return {
       market: r.market,
-      revenuePct: curTotal > 0 ? +((num(r.completed) / curTotal) * 100).toFixed(1) : 0,
+      revenuePct:
+        curTotal > 0 ? +((num(r.completed) / curTotal) * 100).toFixed(1) : 0,
       revenuePct_base:
         baseTotal > 0
           ? +((num(r.completed_base) / baseTotal) * 100).toFixed(1)
           : 0,
     };
   });
+
+  const markets = useMemo(
+    () => [...new Set((rawData || []).map((r) => str(r.market)).filter(Boolean))].sort(),
+    [rawData]
+  );
+
+  const marketWeekMixData = useMemo(() => {
+    if (!rawData?.length) return [];
+
+    const grouped = groupByWeek(rawData);
+    const weekKeys = Object.keys(grouped).sort();
+
+    return weekKeys.map((wk) => {
+      const rows =
+        mixScope === "ALL"
+          ? grouped[wk] || []
+          : (grouped[wk] || []).filter((r) => str(r.market) === mixScope);
+
+      const a = aggWeek(rows);
+
+      return {
+        week: wk.slice(5),
+        completed: a.completed_jobs,
+        completed0Rev: a.completed_job_0_rev,
+        warranty: a.warranty_checks,
+        diagnostic: a.diagnostics,
+        serviceCall: a.service_calls,
+      };
+    });
+  }, [rawData, mixScope]);
+
+  const selectedMixData = mixScope === "ALL" ? weekMixData : marketWeekMixData;
+
+  const selectedMixSignal = useMemo(() => {
+    if (mixScope === "ALL") return workMixSignal;
+
+    const row = workMixCompare.find((r) => r.market === mixScope);
+
+    return {
+      completed: row?.completed || 0,
+      completed_base: row?.completed_base || 0,
+      completed0Rev: row?.completed0Rev || 0,
+      completed0Rev_base: row?.completed0Rev_base || 0,
+    };
+  }, [mixScope, workMixSignal, workMixCompare]);
+
+  const selectedCompletedDelta =
+    selectedMixSignal.completed_base > 0
+      ? +(
+          ((selectedMixSignal.completed - selectedMixSignal.completed_base) /
+            selectedMixSignal.completed_base) *
+          100
+        ).toFixed(1)
+      : 0;
+
+  const selectedCompleted0RevDelta =
+    selectedMixSignal.completed0Rev_base > 0
+      ? +(
+          ((selectedMixSignal.completed0Rev -
+            selectedMixSignal.completed0Rev_base) /
+            selectedMixSignal.completed0Rev_base) *
+          100
+        ).toFixed(1)
+      : 0;
 
   const LastPointDeltaLabel = ({
     x,
@@ -2222,7 +2290,6 @@ function WorkMix({
     value,
     data,
     compareKey,
-    color,
   }) => {
     if (!data || index !== data.length - 1 || value == null) return null;
 
@@ -2248,7 +2315,7 @@ function WorkMix({
     );
   };
 
-  const trendWithBaseline = weekMixData.map((r, idx, arr) => {
+  const trendWithBaseline = selectedMixData.map((r, idx, arr) => {
     if (idx !== arr.length - 1) {
       return {
         ...r,
@@ -2259,8 +2326,8 @@ function WorkMix({
 
     return {
       ...r,
-      completed_base: workMixSignal.completed_base,
-      completed0Rev_base: workMixSignal.completed0Rev_base,
+      completed_base: selectedMixSignal.completed_base,
+      completed0Rev_base: selectedMixSignal.completed0Rev_base,
     };
   });
 
@@ -2285,7 +2352,7 @@ function WorkMix({
         <Card title="Activity Mix by Week">
           <ResponsiveContainer width="100%" height={isMobile ? 180 : 220}>
             <LineChart
-              data={weekMixData}
+              data={selectedMixData}
               margin={{ top: 4, right: 4, left: -10, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
@@ -2338,10 +2405,10 @@ function WorkMix({
           </ResponsiveContainer>
         </Card>
 
-        <Card title="Jobs per Tech by Market">
+        <Card title="Jobs per Day by Market">
           <ResponsiveContainer width="100%" height={isMobile ? 180 : 220}>
             <BarChart
-              data={curByMkt.filter((m) => m.techs > 0)}
+              data={curByMkt}
               layout="vertical"
               margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
             >
@@ -2365,30 +2432,57 @@ function WorkMix({
                 width={isMobile ? 62 : 72}
               />
               <Tooltip content={<TT />} />
-              <Bar dataKey="jobsPerTech" radius={[0, 3, 3, 0]} name="Jobs/Tech">
-                {curByMkt
-                  .filter((m) => m.techs > 0)
-                  .map((r, i) => (
-                    <Cell
-                      key={i}
-                      fill={
-                        r.jobsPerTech >= 3
-                          ? C.success
-                          : r.jobsPerTech >= 1.5
-                          ? C.warning
-                          : C.danger
-                      }
-                    />
-                  ))}
+              <Bar dataKey="completed_jobs" radius={[0, 3, 3, 0]} name="Jobs/Day">
+                {curByMkt.map((r, i) => (
+                  <Cell
+                    key={i}
+                    fill={
+                      r.completed_jobs >= 20
+                        ? C.success
+                        : r.completed_jobs >= 10
+                        ? C.warning
+                        : C.danger
+                    }
+                  />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </Card>
 
         <Card
-          title="Revenue Capacity Mix vs Non-Revenue Mix by Week"
+          title={`Revenue Capacity Mix vs Non-Revenue Mix by Week — ${mixScope}`}
           style={{ gridColumn: "1/-1" }}
         >
+          <div
+            style={{
+              display: "flex",
+              gap: 6,
+              marginBottom: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            {["ALL", ...markets].map((market) => (
+              <button
+                key={market}
+                onClick={() => setMixScope(market)}
+                style={{
+                  background: mixScope === market ? C.info : C.surface,
+                  color: mixScope === market ? "#fff" : C.muted,
+                  border: `1px solid ${mixScope === market ? C.info : C.border}`,
+                  borderRadius: 20,
+                  padding: "5px 14px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {market}
+              </button>
+            ))}
+          </div>
+
           <div
             style={{
               display: "flex",
@@ -2410,21 +2504,21 @@ function WorkMix({
                 Revenue Capacity Mix
               </div>
               <div style={{ fontSize: 22, fontWeight: 800, color: C.primary }}>
-                {Math.round(workMixSignal.completed)}
+                {Math.round(selectedMixSignal.completed)}
               </div>
               <div style={{ fontSize: 12, color: C.muted }}>
-                vs 12W avg {workMixSignal.completed_base.toFixed(1)}
+                vs 12W avg {selectedMixSignal.completed_base.toFixed(1)}
               </div>
               <div
                 style={{
                   fontSize: 12,
                   fontWeight: 700,
-                  color: completedDelta >= 0 ? C.success : C.danger,
+                  color: selectedCompletedDelta >= 0 ? C.success : C.danger,
                   marginTop: 4,
                 }}
               >
-                {completedDelta >= 0 ? "+" : ""}
-                {completedDelta}% relative change
+                {selectedCompletedDelta >= 0 ? "+" : ""}
+                {selectedCompletedDelta}% relative change
               </div>
             </div>
 
@@ -2441,21 +2535,21 @@ function WorkMix({
                 Non-Revenue Mix
               </div>
               <div style={{ fontSize: 22, fontWeight: 800, color: C.primary }}>
-                {Math.round(workMixSignal.completed0Rev)}
+                {Math.round(selectedMixSignal.completed0Rev)}
               </div>
               <div style={{ fontSize: 12, color: C.muted }}>
-                vs 12W avg {workMixSignal.completed0Rev_base.toFixed(1)}
+                vs 12W avg {selectedMixSignal.completed0Rev_base.toFixed(1)}
               </div>
               <div
                 style={{
                   fontSize: 12,
                   fontWeight: 700,
-                  color: completed0RevDelta >= 0 ? C.danger : C.success,
+                  color: selectedCompleted0RevDelta >= 0 ? C.danger : C.success,
                   marginTop: 4,
                 }}
               >
-                {completed0RevDelta >= 0 ? "+" : ""}
-                {completed0RevDelta}% relative change
+                {selectedCompleted0RevDelta >= 0 ? "+" : ""}
+                {selectedCompleted0RevDelta}% relative change
               </div>
             </div>
           </div>
@@ -2491,7 +2585,6 @@ function WorkMix({
                   <LastPointDeltaLabel
                     data={trendWithBaseline}
                     compareKey="completed_base"
-                    color={C.success}
                   />
                 }
               />
@@ -2507,7 +2600,6 @@ function WorkMix({
                   <LastPointDeltaLabel
                     data={trendWithBaseline}
                     compareKey="completed0Rev_base"
-                    color={C.purple}
                   />
                 }
               />
