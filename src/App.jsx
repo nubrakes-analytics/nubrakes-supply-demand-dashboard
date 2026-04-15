@@ -2214,51 +2214,114 @@ function CapacityReview({
                 </tr>
               </thead>
               <tbody>
-                {weeklyDowHeatmap.map((r) => {
-                  const row =
-                    heatmapScope === "All Markets"
-                      ? r.allMarkets
-                      : r.byMarket[heatmapScope] || {};
+  {(() => {
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-                  return (
-                    <tr key={r.fullWeek}>
-                      <td
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: C.primary,
-                          whiteSpace: "nowrap",
-                          paddingRight: 8,
-                        }}
-                      >
-                        {r.week}
-                      </td>
-                      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => {
-                        const v = row[d] || 0;
-                        return (
-                          <td key={d}>
-                            <div
-                              style={{
-                                background: heatColor(v),
-                                color: heatText(v),
-                                border: `1px solid ${C.border}`,
-                                borderRadius: 8,
-                                padding: "10px 6px",
-                                textAlign: "center",
-                                fontSize: 11,
-                                fontWeight: 700,
-                              }}
-                              title={`${r.week} · ${heatmapScope} · ${d}: ${v.toFixed(1)}%`}
-                            >
-                              {v ? `${v.toFixed(1)}%` : "—"}
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
+    const totalRow = days.reduce((acc, day) => {
+      const vals = weeklyDowHeatmap
+        .map((r) => {
+          const row =
+            heatmapScope === "All Markets"
+              ? r.allMarkets
+              : r.byMarket[heatmapScope] || {};
+          return Number(row[day] || 0);
+        })
+        .filter((v) => v > 0);
+
+      acc[day] = vals.length
+        ? vals.reduce((sum, v) => sum + v, 0) / vals.length
+        : 0;
+
+      return acc;
+    }, {});
+
+    return (
+      <>
+        {weeklyDowHeatmap.map((r) => {
+          const row =
+            heatmapScope === "All Markets"
+              ? r.allMarkets
+              : r.byMarket[heatmapScope] || {};
+
+          return (
+            <tr key={r.fullWeek}>
+              <td
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: C.primary,
+                  whiteSpace: "nowrap",
+                  paddingRight: 8,
+                }}
+              >
+                {r.week}
+              </td>
+              {days.map((d) => {
+                const v = Number(row[d] || 0);
+                return (
+                  <td key={d}>
+                    <div
+                      style={{
+                        background: heatColor(v),
+                        color: heatText(v),
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 8,
+                        padding: "10px 6px",
+                        textAlign: "center",
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                      title={`${r.week} · ${heatmapScope} · ${d}: ${v.toFixed(1)}%`}
+                    >
+                      {v ? `${v.toFixed(1)}%` : "—"}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          );
+        })}
+
+        <tr>
+          <td
+            style={{
+              fontSize: 12,
+              fontWeight: 800,
+              color: C.primary,
+              whiteSpace: "nowrap",
+              paddingRight: 8,
+            }}
+          >
+            Total
+          </td>
+          {days.map((d) => {
+            const v = Number(totalRow[d] || 0);
+
+            return (
+              <td key={d}>
+                <div
+                  style={{
+                    background: heatColor(v),
+                    color: heatText(v),
+                    border: `1px solid ${C.primary}`,
+                    borderRadius: 8,
+                    padding: "10px 6px",
+                    textAlign: "center",
+                    fontSize: 11,
+                    fontWeight: 800,
+                  }}
+                  title={`Average across displayed weeks · ${heatmapScope} · ${d}: ${v.toFixed(1)}%`}
+                >
+                  {v ? `${v.toFixed(1)}%` : "—"}
+                </div>
+              </td>
+            );
+          })}
+        </tr>
+      </>
+    );
+  })()}
+</tbody>
             </table>
           </div>
         </Card>
