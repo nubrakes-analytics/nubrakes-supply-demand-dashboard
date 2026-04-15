@@ -2024,83 +2024,140 @@ function CapacityReview({
         </Card>
 
         <Card
-          title="Utilization Heatmap by Market — Last 16 Weeks"
-          style={{ gridColumn: "1/-1" }}
-        >
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 6 }}>
-              <thead>
-                <tr>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      fontSize: 11,
-                      color: C.muted,
-                      paddingBottom: 4,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    Week
-                  </th>
-                  {markets.map((market) => (
-                    <th
-                      key={market}
+  title="Utilization Heatmap by Market — Last 16 Weeks"
+  style={{ gridColumn: "1/-1" }}
+>
+  {(() => {
+    const totalRow = markets.reduce((acc, market) => {
+      const vals = weeklyMarketHeatmap
+        .map((r) => Number(r[market] || 0))
+        .filter((v) => v > 0);
+
+      acc[market] = vals.length
+        ? vals.reduce((sum, v) => sum + v, 0) / vals.length
+        : 0;
+
+      return acc;
+    }, {});
+    
+    return (
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 6 }}>
+          <thead>
+            <tr>
+              <th
+                style={{
+                  textAlign: "left",
+                  fontSize: 11,
+                  color: C.muted,
+                  paddingBottom: 4,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Week
+              </th>
+              {markets.map((market) => (
+                <th
+                  key={market}
+                  style={{
+                    textAlign: "center",
+                    fontSize: 11,
+                    color: C.muted,
+                    paddingBottom: 4,
+                    minWidth: 74,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {market}
+                </th>
+              ))}
+            </tr>
+          </thead>
+
+          <tbody>
+            {weeklyMarketHeatmap.map((r) => (
+              <tr key={r.fullWeek}>
+                <td
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: C.primary,
+                    whiteSpace: "nowrap",
+                    paddingRight: 8,
+                  }}
+                >
+                  {r.week}
+                </td>
+
+                {markets.map((market) => {
+                  const v = Number(r[market] || 0);
+
+                  return (
+                    <td key={market}>
+                      <div
+                        style={{
+                          background: heatColor(v),
+                          color: heatText(v),
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 8,
+                          padding: "10px 6px",
+                          textAlign: "center",
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                        title={`${r.week} · ${market}: ${v.toFixed(1)}%`}
+                      >
+                        {v ? `${v.toFixed(1)}%` : "—"}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+
+            <tr>
+              <td
+                style={{
+                  fontSize: 12,
+                  fontWeight: 800,
+                  color: C.primary,
+                  whiteSpace: "nowrap",
+                  paddingRight: 8,
+                }}
+              >
+                Total
+              </td>
+
+              {markets.map((market) => {
+                const v = Number(totalRow[market] || 0);
+
+                return (
+                  <td key={market}>
+                    <div
                       style={{
+                        background: heatColor(v),
+                        color: heatText(v),
+                        border: `1px solid ${C.primary}`,
+                        borderRadius: 8,
+                        padding: "10px 6px",
                         textAlign: "center",
                         fontSize: 11,
-                        color: C.muted,
-                        paddingBottom: 4,
-                        minWidth: 74,
-                        whiteSpace: "nowrap",
+                        fontWeight: 800,
                       }}
+                      title={`Average across displayed weeks · ${market}: ${v.toFixed(1)}%`}
                     >
-                      {market}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {weeklyMarketHeatmap.map((r) => (
-                  <tr key={r.fullWeek}>
-                    <td
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: C.primary,
-                        whiteSpace: "nowrap",
-                        paddingRight: 8,
-                      }}
-                    >
-                      {r.week}
-                    </td>
-                    {markets.map((market) => {
-                      const v = r[market] || 0;
-                      return (
-                        <td key={market}>
-                          <div
-                            style={{
-                              background: heatColor(v),
-                              color: heatText(v),
-                              border: `1px solid ${C.border}`,
-                              borderRadius: 8,
-                              padding: "10px 6px",
-                              textAlign: "center",
-                              fontSize: 11,
-                              fontWeight: 700,
-                            }}
-                            title={`${r.week} · ${market}: ${v.toFixed(1)}%`}
-                          >
-                            {v ? `${v.toFixed(1)}%` : "—"}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                      {v ? `${v.toFixed(1)}%` : "—"}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    );
+  })()}
+</Card>
 
         <Card title="Utilization Heatmap — Day of Week" style={{ gridColumn: "1/-1" }}>
           <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
