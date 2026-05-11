@@ -1048,7 +1048,21 @@ export default function App() {
       const slots12w = avg("slots");
       const techs12w = avg("techs");
       const avail12w = avg("slotAvailPct");
-      const jobsPerTech12w = avg("jobsPerTech");
+      const jobsPerTech12w = (() => {
+
+  const vals = weekly
+
+    .map((w) => num(w.jobsPerTech))
+
+    .filter((v) => v > 0);
+
+  return vals.length
+
+    ? vals.reduce((sum, v) => sum + v, 0) / vals.length
+
+    : 0;
+
+})();
       const jobs12w = avg("completed_jobs");
 
       const variancePct =
