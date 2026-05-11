@@ -198,15 +198,8 @@ const derive = (agg) => ({
     agg.slots > 0 ? pct(agg.rev_job_slots_available, agg.slots) : 0,
   lsr: agg.slots > 0 ? +(agg.leads / agg.slots).toFixed(1) : 0,
   jobsPerTech:
-
   agg.techs > 0
-
-    ? +(
-
-        (agg.completed_jobs + agg.completed_job_0_rev) / agg.techs
-
-      ).toFixed(1)
-
+    ? +(agg.completed_jobs_all_FT / agg.techs).toFixed(1)
     : 0,
   nonRevPct:
     agg.utilized_slots > 0
@@ -855,13 +848,13 @@ export default function App() {
     market: m,
     ...derive(agg),
     jobsPerDayPerTech:
-      daysCount > 0 && agg.techs > 0
-        ? +(
-            (agg.completed_jobs + agg.completed_job_0_rev) /
-            daysCount /
-            agg.techs
-          ).toFixed(2)
-        : 0,
+  daysCount > 0 && agg.techs > 0
+    ? +(
+        agg.completed_jobs_all_FT /
+        daysCount /
+        agg.techs
+      ).toFixed(2)
+    : 0,
   };
 });
 
@@ -967,8 +960,10 @@ export default function App() {
     const daysCount = countDistinctDays(rows);
 
     return daysCount > 0 && agg.techs > 0
-      ? (agg.completed_jobs + agg.completed_job_0_rev) / daysCount / agg.techs
-      : 0;
+
+  ? agg.completed_jobs_all_FT / daysCount / agg.techs
+
+  : 0;
   });
 
   const jobsPerDayPerTech_12w = baselineRowsByWeek.length
