@@ -122,18 +122,32 @@ const countDistinctDays = (rows) => {
 
 const aggWeek = (rows) => {
   const r = {
-    leads: 0,
-    booked_jobs: 0,
-    completed_jobs: 0,
-    completed_job_0_rev: 0,
-    warranty_checks: 0,
-    diagnostics: 0,
-    service_calls: 0,
-    utilized_slots: 0,
-    techs: 0,
-    slots: 0,
-    rev_job_slots_available: 0,
-  };
+
+  leads: 0,
+
+  booked_jobs: 0,
+
+  completed_jobs: 0,
+
+  completed_job_0_rev: 0,
+
+  completed_jobs_all_FT: 0,
+
+  warranty_checks: 0,
+
+  diagnostics: 0,
+
+  service_calls: 0,
+
+  utilized_slots: 0,
+
+  techs: 0,
+
+  slots: 0,
+
+  rev_job_slots_available: 0,
+
+};
 
   if (!rows.length) return r;
 
@@ -148,6 +162,7 @@ const aggWeek = (rows) => {
     r.utilized_slots += num(d.utilized_slots);
     r.slots += num(d.slots);
     r.rev_job_slots_available += num(d.rev_job_slots_available);
+    r.completed_jobs_all_FT += num(d.completed_jobs_all_FT);
   });
 
   const mktMax = {};
@@ -183,11 +198,16 @@ const derive = (agg) => ({
     agg.slots > 0 ? pct(agg.rev_job_slots_available, agg.slots) : 0,
   lsr: agg.slots > 0 ? +(agg.leads / agg.slots).toFixed(1) : 0,
   jobsPerTech:
-    agg.techs > 0
-      ? +(
-          (agg.completed_jobs + agg.completed_job_0_rev) / agg.techs
-        ).toFixed(1)
-      : 0,
+
+  agg.techs > 0
+
+    ? +(
+
+        (agg.completed_jobs + agg.completed_job_0_rev) / agg.techs
+
+      ).toFixed(1)
+
+    : 0,
   nonRevPct:
     agg.utilized_slots > 0
       ? pct(agg.completed_job_0_rev, agg.utilized_slots)
@@ -220,7 +240,7 @@ const buildScorecardBaseline = (allWeeks, baselineWeeks) => {
     techs: avg("techs"),
     slots: avg("slots"),
     rev_job_slots_available: avg("rev_job_slots_available"),
-
+    completed_jobs_all_FT: avg("completed_jobs_all_FT"),
     bookingRate: avg("bookingRate"),
     convRate: avg("convRate"),
     utilization: avg("utilization"),
@@ -1790,8 +1810,9 @@ function CapacityReview({
                     "Direction",
                     "Avail%",
                     "12W Avg Avail%",
-                    "Jobs/Tech",
-                    "12W Avg Jobs/Tech",
+                    "Jobs/Tech (FT only)",
+
+"12W Avg Jobs/Tech (FT only)",
                     "Jobs",
                     "12W Avg Jobs",
                   ].map((h) => (
